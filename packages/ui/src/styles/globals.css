@@ -1,0 +1,146 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Quét class trong toàn bộ source của package ui (kể cả khi được import từ app khác) */
+@source "../**/*.{ts,tsx}";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Bảng màu "Frost" — cảm hứng băng giá:
+ *   navy đậm #1F2435 · đen than #111218 · xanh băng #9EC7FF
+ *   bạc kim loại #C0C6D8 · vàng điểm nhấn #E3C88A (dùng rất ít)
+ */
+:root {
+  --radius: 0.625rem;
+
+  /* Token thương hiệu cố định — dùng trực tiếp: bg-brand-ice, text-brand-gold... */
+  --brand-navy: #1f2435;
+  --brand-ink: #111218;
+  --brand-ice: #9ec7ff;
+  --brand-silver: #c0c6d8;
+  --brand-gold: #e3c88a;
+
+  /* ----- LIGHT: frosty, nền trắng lạnh ----- */
+  --background: #f5f7fb;
+  --foreground: #1f2435;
+  --card: #ffffff;
+  --card-foreground: #1f2435;
+  --popover: #ffffff;
+  --popover-foreground: #1f2435;
+  --primary: #1f2435;
+  --primary-foreground: #f5f7fb;
+  --secondary: #e7ecf5;
+  --secondary-foreground: #1f2435;
+  --muted: #eef1f7;
+  --muted-foreground: #5a6275;
+  --accent: #dce9ff;
+  --accent-foreground: #1f2435;
+  --destructive: #d83a47;
+  --border: #d6dce8;
+  --input: #d6dce8;
+  --ring: #9ec7ff;
+  --chart-1: #5b8def;
+  --chart-2: #9ec7ff;
+  --chart-3: #2a3047;
+  --chart-4: #e3c88a;
+  --chart-5: #c0c6d8;
+  --sidebar: #eef2f8;
+  --sidebar-foreground: #1f2435;
+  --sidebar-primary: #1f2435;
+  --sidebar-primary-foreground: #f5f7fb;
+  --sidebar-accent: #dce9ff;
+  --sidebar-accent-foreground: #1f2435;
+  --sidebar-border: #d6dce8;
+  --sidebar-ring: #9ec7ff;
+}
+
+/* ----- DARK: đêm băng giá, nền đen than + navy ----- */
+.dark {
+  --background: #111218;
+  --foreground: #e8ecf5;
+  --card: #1f2435;
+  --card-foreground: #e8ecf5;
+  --popover: #1f2435;
+  --popover-foreground: #e8ecf5;
+  --primary: #9ec7ff;
+  --primary-foreground: #111218;
+  --secondary: #2a3047;
+  --secondary-foreground: #e8ecf5;
+  --muted: #222838;
+  --muted-foreground: #9aa3b8;
+  --accent: #2a3047;
+  --accent-foreground: #e8ecf5;
+  --destructive: #ef6b6b;
+  --border: rgb(192 198 216 / 0.12);
+  --input: rgb(192 198 216 / 0.16);
+  --ring: #9ec7ff;
+  --chart-1: #9ec7ff;
+  --chart-2: #c0c6d8;
+  --chart-3: #5b8def;
+  --chart-4: #e3c88a;
+  --chart-5: #6f7891;
+  --sidebar: #14161f;
+  --sidebar-foreground: #e8ecf5;
+  --sidebar-primary: #9ec7ff;
+  --sidebar-primary-foreground: #111218;
+  --sidebar-accent: #2a3047;
+  --sidebar-accent-foreground: #e8ecf5;
+  --sidebar-border: rgb(192 198 216 / 0.12);
+  --sidebar-ring: #9ec7ff;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Token thương hiệu */
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-ice: var(--brand-ice);
+  --color-brand-silver: var(--brand-silver);
+  --color-brand-gold: var(--brand-gold);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

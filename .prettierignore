@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+.next
+out
+storybook-static
+.turbo
+coverage
+pnpm-lock.yaml

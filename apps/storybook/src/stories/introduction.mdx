@@ -1,0 +1,42 @@
+import { Meta } from "@storybook/addon-docs/blocks"
+
+<Meta title="Giới thiệu" />
+
+# Leaner UI
+
+Thư viện component dùng chung của monorepo **Leaner**, xây trên:
+
+- **React 19** + **TypeScript**
+- **Tailwind CSS v4**
+- **shadcn/ui** (style `new-york`, base color `neutral`)
+
+## Cấu trúc monorepo
+
+```
+apps/        # các ứng dụng (Next.js...) — sẽ thêm dần
+  storybook/ # nơi document & phát triển component (chính là đây)
+packages/
+  ui/                # thư viện component shadcn dùng chung (@leaner/ui)
+  eslint-config/     # config ESLint + Prettier dùng chung
+  typescript-config/ # tsconfig base/nextjs/react-library dùng chung
+```
+
+## Dùng component trong app
+
+```tsx
+import { Button } from "@leaner/ui/components/button"
+
+export function Example() {
+  return <Button>Bấm đi</Button>
+}
+```
+
+## Thêm component shadcn mới
+
+Chạy ở thư mục `packages/ui` (đã có `components.json`):
+
+```bash
+pnpm dlx shadcn@latest add card input label
+```
+
+Component sẽ được thêm vào `packages/ui/src/components` và tự dùng được ở mọi app.

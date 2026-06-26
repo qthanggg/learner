@@ -1,0 +1,5 @@
+/* Nạp theme + Tailwind v4 từ thư viện ui dùng chung */
+@import "@leaner/ui/globals.css";
+
+/* Quét thêm class dùng trực tiếp trong các story của app này */
+@source "../**/*.{ts,tsx}";
