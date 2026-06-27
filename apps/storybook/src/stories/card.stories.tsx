@@ -41,6 +41,24 @@ export const Default: Story = {
   ),
 }
 
+export const Variants: Story = {
+  render: () => (
+    <div className="grid gap-4">
+      {(["success", "warning", "info", "destructive"] as const).map((variant) => (
+        <Card key={variant} variant={variant} className="w-80">
+          <CardHeader>
+            <CardTitle className="capitalize">{variant}</CardTitle>
+            <CardDescription>Thẻ trạng thái dùng kiểu màu tint giống Alert.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm">Nội dung trạng thái “{variant}”.</p>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  ),
+}
+
 export const LoginForm: Story = {
   render: () => (
     <Card className="w-80">

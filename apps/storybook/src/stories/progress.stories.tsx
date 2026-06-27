@@ -10,9 +10,14 @@ const meta = {
   parameters: { layout: "centered" },
   argTypes: {
     value: { control: { type: "range", min: 0, max: 100, step: 1 } },
+    color: {
+      control: "select",
+      options: ["default", "success", "warning", "info", "destructive"],
+    },
   },
   args: {
     value: 60,
+    color: "default",
   },
   render: (args) => <Progress {...args} className="w-72" />,
 } satisfies Meta<typeof Progress>
@@ -22,6 +27,16 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
+
+export const Colors: Story = {
+  render: () => (
+    <div className="flex w-72 flex-col gap-4">
+      {(["default", "success", "warning", "info", "destructive"] as const).map((color) => (
+        <Progress key={color} color={color} value={60} />
+      ))}
+    </div>
+  ),
+}
 
 function Animated() {
   const [value, setValue] = React.useState(10)
