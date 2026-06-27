@@ -26,7 +26,10 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
-
+_bmad
+.claude
+docs
+output
 # misc
 .playwright-mcp
 .DS_Store
