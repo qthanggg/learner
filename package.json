@@ -11,6 +11,7 @@
     "lint": "turbo run lint",
     "check-types": "turbo run check-types",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,md,mdx,json,css}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,md,mdx,json,css}\" --ignore-path .gitignore",
     "storybook": "turbo run storybook",
     "build-storybook": "turbo run build-storybook"
   },

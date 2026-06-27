@@ -10,13 +10,18 @@ const alertVariants = cva(
       variant: {
         default: "bg-card text-card-foreground",
         destructive:
-          "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 [&>svg]:text-current",
+          "border-destructive/20 bg-destructive/8 text-destructive *:data-[slot=alert-description]:text-destructive/90 dark:bg-destructive/12",
+        success:
+          "border-success/20 bg-success/8 text-success *:data-[slot=alert-description]:text-success/90 dark:bg-success/12",
+        warning:
+          "border-warning/25 bg-warning/12 text-warning *:data-[slot=alert-description]:text-warning/90 dark:bg-warning/12",
+        info: "border-info/20 bg-info/8 text-info *:data-[slot=alert-description]:text-info/90 dark:bg-info/12",
       },
     },
     defaultVariants: {
       variant: "default",
     },
-  }
+  },
 )
 
 function Alert({
@@ -38,25 +43,19 @@ function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-title"
-      className={cn(
-        "col-start-2 line-clamp-1 min-h-4 font-medium tracking-tight",
-        className
-      )}
+      className={cn("col-start-2 line-clamp-1 min-h-4 font-medium tracking-tight", className)}
       {...props}
     />
   )
 }
 
-function AlertDescription({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function AlertDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-description"
       className={cn(
-        "col-start-2 grid justify-items-start gap-1 text-sm text-muted-foreground [&_p]:leading-relaxed",
-        className
+        "text-muted-foreground col-start-2 grid justify-items-start gap-1 text-sm [&_p]:leading-relaxed",
+        className,
       )}
       {...props}
     />

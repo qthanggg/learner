@@ -13,11 +13,15 @@ const meta = {
       control: "select",
       options: ["text", "email", "password", "number", "search", "tel", "url"],
     },
+    inputSize: { control: "inline-radio", options: ["sm", "default", "lg"] },
+    state: { control: "inline-radio", options: ["default", "success", "error"] },
     placeholder: { control: "text" },
     disabled: { control: "boolean" },
   },
   args: {
     type: "text",
+    inputSize: "default",
+    state: "default",
     placeholder: "Nhập nội dung…",
     disabled: false,
   },
@@ -28,15 +32,30 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Default: Story = {}
+export const Playground: Story = {}
+
+export const Sizes: Story = {
+  render: (args) => (
+    <div className="flex w-64 flex-col gap-3">
+      <Input {...args} inputSize="sm" placeholder="Small" />
+      <Input {...args} inputSize="default" placeholder="Default" />
+      <Input {...args} inputSize="lg" placeholder="Large" />
+    </div>
+  ),
+}
+
+export const States: Story = {
+  render: (args) => (
+    <div className="flex w-64 flex-col gap-3">
+      <Input {...args} state="default" placeholder="Mặc định" />
+      <Input {...args} state="success" placeholder="Hợp lệ" />
+      <Input {...args} state="error" placeholder="Có lỗi" />
+    </div>
+  ),
+}
 
 export const Disabled: Story = {
   args: { disabled: true, placeholder: "Bị vô hiệu hoá" },
-}
-
-export const Invalid: Story = {
-  render: (args) => <Input {...args} aria-invalid className="w-64" />,
-  args: { placeholder: "Giá trị không hợp lệ" },
 }
 
 export const WithLabel: Story = {
