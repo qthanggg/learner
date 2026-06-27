@@ -9,6 +9,9 @@ build
 out
 storybook-static
 
+# astro generated
+.astro
+
 # turborepo
 .turbo
 

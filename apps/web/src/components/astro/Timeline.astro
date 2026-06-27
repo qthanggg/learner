@@ -1,0 +1,28 @@
+---
+import { EXPERIENCE } from "../../data/experience"
+---
+
+<ol class="relative">
+  {
+    EXPERIENCE.map((job, i) => (
+      <li class="relative grid grid-cols-[auto_1fr] gap-x-5 pb-10 last:pb-0">
+        <div class="flex flex-col items-center">
+          <span class="from-brand-teal to-brand-pink mt-1.5 size-3 shrink-0 rounded-full bg-gradient-to-br" />
+          {i < EXPERIENCE.length - 1 && <span class="bg-border/70 mt-1 w-px flex-1" />}
+        </div>
+        <div class="pb-2">
+          <div class="text-muted-foreground flex flex-wrap items-baseline gap-x-2 text-xs">
+            <span class="text-foreground font-medium">{job.period}</span>
+            <span>·</span>
+            <span>{job.location}</span>
+          </div>
+          <h3 class="text-foreground mt-1 font-semibold">
+            {job.role} — {job.company}
+          </h3>
+          <p class="text-brand-pink mt-0.5 text-sm">{job.project}</p>
+          <p class="text-muted-foreground mt-1.5 text-sm leading-relaxed">{job.summary}</p>
+        </div>
+      </li>
+    ))
+  }
+</ol>

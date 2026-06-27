@@ -1,0 +1,24 @@
+---
+import BaseLayout from "./BaseLayout.astro"
+import Header from "../components/astro/Header.astro"
+import Footer from "../components/astro/Footer.astro"
+import ScrollProgress from "../components/react/ScrollProgress.tsx"
+import type { SeoInput } from "../lib/seo"
+
+type Props = SeoInput
+---
+
+<BaseLayout {...Astro.props}>
+  <a
+    href="#main"
+    class="bg-primary text-primary-foreground sr-only z-[100] rounded-md px-4 py-2 focus:not-sr-only focus:absolute focus:left-4 focus:top-4"
+  >
+    Skip to content
+  </a>
+  <ScrollProgress client:idle />
+  <Header />
+  <main id="main">
+    <slot />
+  </main>
+  <Footer />
+</BaseLayout>

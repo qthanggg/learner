@@ -1,0 +1,47 @@
+---
+import PageLayout from "../layouts/PageLayout.astro"
+import Section from "../components/astro/Section.astro"
+import SocialLinks from "../components/astro/SocialLinks.astro"
+import ContactForm from "../components/react/ContactForm.tsx"
+import Reveal from "../components/react/Reveal.tsx"
+import { SITE } from "../consts"
+---
+
+<PageLayout
+  title="Contact"
+  description={`Get in touch with ${SITE.author} — Front-End Engineer.`}
+  path="/contact"
+>
+  <Section eyebrow="Contact" title="Let's talk" description="The fastest way to reach me is email — the form below opens your mail client.">
+    <div class="grid gap-10 lg:grid-cols-[1fr_1.2fr]">
+      <div class="space-y-6">
+        <div>
+          <h3 class="text-muted-foreground text-xs font-semibold tracking-wide uppercase">Email</h3>
+          <a href={`mailto:${SITE.email}`} class="text-foreground hover:text-brand-pink mt-1 block text-lg transition-colors">
+            {SITE.email}
+          </a>
+        </div>
+        <div>
+          <h3 class="text-muted-foreground text-xs font-semibold tracking-wide uppercase">Phone</h3>
+          <a href={`tel:${SITE.phone}`} class="text-foreground hover:text-brand-pink mt-1 block text-lg transition-colors">
+            {SITE.phone}
+          </a>
+        </div>
+        <div>
+          <h3 class="text-muted-foreground text-xs font-semibold tracking-wide uppercase">Location</h3>
+          <p class="text-foreground mt-1 text-lg">{SITE.location}</p>
+        </div>
+        <div>
+          <h3 class="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">Elsewhere</h3>
+          <SocialLinks />
+        </div>
+      </div>
+
+      <Reveal client:visible from="right">
+        <div class="border-border/60 bg-card/40 rounded-2xl border p-6 sm:p-8">
+          <ContactForm client:visible />
+        </div>
+      </Reveal>
+    </div>
+  </Section>
+</PageLayout>

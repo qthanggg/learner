@@ -1,0 +1,57 @@
+---
+import PageLayout from "../layouts/PageLayout.astro"
+import Section from "../components/astro/Section.astro"
+import SkillGrid from "../components/astro/SkillGrid.astro"
+import Timeline from "../components/astro/Timeline.astro"
+import Reveal from "../components/react/Reveal.tsx"
+import { Button } from "@leaner/ui/components/button"
+import { EDUCATION } from "../data/experience"
+import { SITE } from "../consts"
+---
+
+<PageLayout
+  title="About"
+  description="Front-End Engineer focused on design systems, monorepo architecture, and web performance."
+  path="/about"
+>
+  <Section eyebrow="About" title="Hi, I'm Thang.">
+    <div class="max-w-2xl space-y-4 text-lg leading-relaxed text-pretty">
+      <p class="text-foreground/90">
+        I'm a Front-End Engineer based in {SITE.location} with 3+ years building high-performance web
+        applications in the React, Next.js, and TypeScript ecosystem.
+      </p>
+      <p class="text-muted-foreground">
+        My favourite problems sit where <strong class="text-foreground">design systems</strong>,
+        <strong class="text-foreground">monorepo architecture</strong>, and
+        <strong class="text-foreground">measurable performance</strong> meet. At Arobid I owned the UI
+        architecture of a 15+ app monorepo and built 490+ reusable components, lifting code reuse to
+        70%. On TravelEasy I shipped a live booking funnel and a multi-partner white-label system.
+        This very portfolio is built the same way: a Turborepo + design-system + Storybook workflow.
+      </p>
+      <p class="text-muted-foreground">
+        I lean on AI-assisted development to move fast, but I keep quality honest with reviews,
+        Vitest, Playwright, and a Lighthouse budget that motion is never allowed to break.
+      </p>
+    </div>
+    <div class="mt-8">
+      <Button asChild variant="gradient">
+        <a href={SITE.cvPath} download>Download CV</a>
+      </Button>
+    </div>
+  </Section>
+
+  <Section eyebrow="Skills" title="Toolbox" class="pt-0">
+    <SkillGrid />
+  </Section>
+
+  <Section eyebrow="Career" title="Experience" class="pt-0">
+    <Reveal client:visible>
+      <Timeline />
+    </Reveal>
+    <div class="border-border/60 mt-8 border-t pt-6">
+      <h3 class="text-foreground text-sm font-semibold tracking-wide uppercase">Education</h3>
+      <p class="text-foreground mt-2">{EDUCATION.school} — {EDUCATION.degree}</p>
+      <p class="text-muted-foreground text-sm">{EDUCATION.period}</p>
+    </div>
+  </Section>
+</PageLayout>
