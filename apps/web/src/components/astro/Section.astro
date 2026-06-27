@@ -1,0 +1,37 @@
+---
+import TextReveal from "../react/TextReveal.tsx"
+
+interface Props {
+  id?: string
+  eyebrow?: string
+  title?: string
+  description?: string
+  class?: string
+  /** Animate the title word-by-word as it scrolls in (cinematic-aware). */
+  animatedTitle?: boolean
+}
+
+const { id, eyebrow, title, description, class: className, animatedTitle } = Astro.props
+const titleClass =
+  "text-foreground text-3xl font-bold tracking-tight text-balance sm:text-4xl"
+---
+
+<section id={id} class:list={["mx-auto max-w-5xl px-6 py-16 sm:py-24", className]}>
+  {
+    (eyebrow || title || description) && (
+      <div class="mb-10 max-w-2xl">
+        {eyebrow && (
+          <p class="text-brand-pink mb-2 text-sm font-medium tracking-wide uppercase">{eyebrow}</p>
+        )}
+        {title &&
+          (animatedTitle ? (
+            <TextReveal client:visible text={title} as="h2" className={titleClass} />
+          ) : (
+            <h2 class={titleClass}>{title}</h2>
+          ))}
+        {description && <p class="text-muted-foreground mt-3 text-lg text-pretty">{description}</p>}
+      </div>
+    )
+  }
+  <slot />
+</section>

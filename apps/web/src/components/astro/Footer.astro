@@ -1,0 +1,35 @@
+---
+import { NAV, SITE } from "../../consts"
+---
+
+<footer class="border-border/60 mt-24 border-t">
+  <div
+    class="text-muted-foreground mx-auto flex max-w-5xl flex-col gap-4 px-6 py-10 text-sm sm:flex-row sm:items-center sm:justify-between"
+  >
+    <p>
+      © {new Date().getFullYear()} {SITE.author}. Built with Astro, Tailwind &amp; the
+      <code class="text-foreground">@leaner/ui</code> design system.
+    </p>
+    <nav aria-label="Footer" class="flex flex-wrap items-center gap-4">
+      {
+        NAV.map((item) => (
+          <a href={item.href} class="hover:text-foreground transition-colors">
+            {item.label}
+          </a>
+        ))
+      }
+      <a
+        href={SITE.github}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="hover:text-foreground transition-colors">GitHub</a
+      >
+      <a
+        href={SITE.storybookUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="hover:text-foreground transition-colors">Storybook</a
+      >
+    </nav>
+  </div>
+</footer>

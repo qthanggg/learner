@@ -1,0 +1,53 @@
+---
+import { NAV, SITE } from "../../consts"
+import AnimationModeToggle from "../react/AnimationModeToggle.tsx"
+import ThemeToggle from "../react/ThemeToggle.tsx"
+
+const path = Astro.url.pathname
+const isActive = (href: string) => path === href || path.startsWith(href + "/")
+---
+
+<header
+  class="border-border/60 bg-background/70 sticky top-0 z-50 border-b backdrop-blur-md supports-[backdrop-filter]:bg-background/60"
+>
+  <div class="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-6">
+    <a
+      href="/"
+      class="from-brand-teal to-brand-pink bg-gradient-to-r bg-clip-text text-sm font-semibold tracking-tight text-transparent"
+    >
+      {SITE.authorShort}
+    </a>
+
+    <nav aria-label="Primary" class="hidden items-center gap-1 sm:flex">
+      {
+        NAV.map((item) => (
+          <a
+            href={item.href}
+            aria-current={isActive(item.href) ? "page" : undefined}
+            class:list={[
+              "rounded-md px-3 py-1.5 text-sm transition-colors",
+              isActive(item.href)
+                ? "text-foreground font-medium"
+                : "text-muted-foreground hover:text-foreground",
+            ]}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+      <a
+        href={SITE.storybookUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-muted-foreground hover:text-foreground rounded-md px-3 py-1.5 text-sm transition-colors"
+      >
+        Storybook ↗
+      </a>
+    </nav>
+
+    <div class="flex items-center gap-1.5">
+      <ThemeToggle client:load />
+      <AnimationModeToggle client:load />
+    </div>
+  </div>
+</header>

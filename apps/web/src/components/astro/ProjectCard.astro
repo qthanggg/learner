@@ -1,0 +1,75 @@
+---
+import { Image } from "astro:assets"
+import { Card, CardContent, CardHeader, CardTitle } from "@leaner/ui/components/card"
+import { Badge } from "@leaner/ui/components/badge"
+import type { Project } from "../../data/projects"
+
+interface Props {
+  project: Project
+}
+
+const { project } = Astro.props
+const href = `/work/${project.slug}`
+const accentRing: Record<Project["accent"], string> = {
+  teal: "hover:border-brand-teal/50",
+  pink: "hover:border-brand-pink/50",
+  info: "hover:border-info/50",
+  success: "hover:border-success/50",
+}
+---
+
+<a href={href} class="group block focus-visible:outline-none">
+  <Card
+    class:list={[
+      "h-full gap-0 overflow-hidden pt-0 transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-lg group-focus-visible:ring-ring group-focus-visible:ring-2",
+      accentRing[project.accent],
+    ]}
+  >
+    <div class="border-border/60 bg-muted/40 relative aspect-[16/10] overflow-hidden border-b">
+      <Image
+        src={project.cover}
+        alt={`${project.name} — ${project.tagline}`}
+        widths={[360, 640, 800]}
+        sizes="(min-width: 768px) 24rem, 100vw"
+        class="size-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.04]"
+      />
+      {
+        project.realShot && (
+          <span class="bg-background/80 text-foreground absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-medium backdrop-blur-sm">
+            Live
+          </span>
+        )
+      }
+    </div>
+    <CardHeader className="pt-6">
+      <div class="text-muted-foreground flex items-center justify-between text-xs">
+        <span>{project.company}</span>
+        <span>{project.period}</span>
+      </div>
+      <CardTitle className="mt-1 flex items-center gap-2 text-xl">
+        {project.name}
+        <span
+          class="text-muted-foreground transition-transform group-hover:translate-x-0.5"
+          aria-hidden>→</span
+        >
+      </CardTitle>
+      <p class="text-muted-foreground text-sm">{project.tagline}</p>
+    </CardHeader>
+    <CardContent className="flex flex-col gap-4">
+      <p class="text-card-foreground/90 text-sm leading-relaxed">{project.summary}</p>
+      <div class="flex flex-wrap gap-2">
+        {project.stack.slice(0, 5).map((tech) => <Badge variant="secondary">{tech}</Badge>)}
+      </div>
+      <div class="border-border/60 mt-1 flex flex-wrap gap-x-6 gap-y-2 border-t pt-4">
+        {
+          project.metrics.slice(0, 3).map((m) => (
+            <div>
+              <div class="text-foreground text-base font-semibold">{m.value}</div>
+              <div class="text-muted-foreground text-xs">{m.label}</div>
+            </div>
+          ))
+        }
+      </div>
+    </CardContent>
+  </Card>
+</a>

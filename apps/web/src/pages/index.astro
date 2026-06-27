@@ -1,0 +1,150 @@
+---
+import PageLayout from "../layouts/PageLayout.astro"
+import Section from "../components/astro/Section.astro"
+import ProjectCard from "../components/astro/ProjectCard.astro"
+import SocialLinks from "../components/astro/SocialLinks.astro"
+import HeroBackdrop from "../components/react/HeroBackdrop.tsx"
+import Reveal from "../components/react/Reveal.tsx"
+import CardMotion from "../components/react/CardMotion.tsx"
+import Magnetic from "../components/react/Magnetic.tsx"
+import { Button } from "@leaner/ui/components/button"
+import { Badge } from "@leaner/ui/components/badge"
+import { PROJECTS } from "../data/projects"
+import { SKILL_GROUPS } from "../data/skills"
+import { SITE } from "../consts"
+
+const featured = PROJECTS.filter((p) => p.featured)
+const secondary = PROJECTS.filter((p) => !p.featured)
+const coreStack = ["TypeScript", "React", "Next.js", "Turborepo", "Tailwind", "Storybook"]
+---
+
+<PageLayout>
+  {/* ── Hero ───────────────────────────────────────────────── */}
+  <section class="relative overflow-hidden">
+    <HeroBackdrop client:visible />
+    <div class="mx-auto max-w-5xl px-6 pt-20 pb-16 sm:pt-28 sm:pb-24">
+      <Badge variant="success-soft" className="mb-6">
+        <span class="bg-success mr-1.5 inline-block size-1.5 rounded-full"></span>
+        Open to Front-End roles
+      </Badge>
+
+      {/* LCP element: pure static HTML, never JS-gated. */}
+      <h1
+        class="text-foreground max-w-3xl text-4xl font-bold tracking-tight text-balance sm:text-6xl"
+      >
+        Front-End Engineer building
+        <span class="from-brand-teal to-brand-pink bg-gradient-to-r bg-clip-text text-transparent">
+          design systems
+        </span>
+        that scale and stay fast.
+      </h1>
+
+      <p class="text-muted-foreground mt-6 max-w-2xl text-lg text-pretty sm:text-xl">
+        I'm {SITE.authorShort} — 3+ years shipping high-performance React &amp; Next.js apps. I
+        architected a 490+ component design system across a 15-app monorepo and a live travel-booking
+        funnel — with Lighthouse 90+ as a hard constraint, not an afterthought.
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <Magnetic client:visible>
+          <Button asChild variant="gradient" size="xl">
+            <a href="/work">View my work</a>
+          </Button>
+        </Magnetic>
+        <Button asChild variant="outline" size="xl">
+          <a href={SITE.cvPath} download>Download CV</a>
+        </Button>
+        <SocialLinks class="ml-1" />
+      </div>
+
+      <div class="mt-10 flex flex-wrap items-center gap-2">
+        <span class="text-muted-foreground text-sm">Core stack:</span>
+        {coreStack.map((tech) => <Badge variant="outline" className="font-normal">{tech}</Badge>)}
+      </div>
+    </div>
+  </section>
+
+  {/* ── Featured work ──────────────────────────────────────── */}
+  <Section
+    eyebrow="Selected work"
+    title="Case studies"
+    description="Two live products where the architecture is the story — explore the deep-dives."
+    animatedTitle
+  >
+    <div class="grid gap-6 md:grid-cols-2">
+      {
+        featured.map((project, i) => (
+          <CardMotion client:visible delay={i * 0.08} className="h-full">
+            <ProjectCard project={project} />
+          </CardMotion>
+        ))
+      }
+    </div>
+    <div class="mt-6 grid gap-6 sm:grid-cols-2">
+      {
+        secondary.map((project, i) => (
+          <CardMotion client:visible delay={i * 0.08} className="h-full">
+            <ProjectCard project={project} />
+          </CardMotion>
+        ))
+      }
+    </div>
+    <div class="mt-8">
+      <Button asChild variant="ghost">
+        <a href="/work">All projects →</a>
+      </Button>
+    </div>
+  </Section>
+
+  {/* ── Skills ─────────────────────────────────────────────── */}
+  <Section
+    eyebrow="Capabilities"
+    title="What I bring to a team"
+    description="Design-system thinking, monorepo architecture, and measurable performance work."
+    animatedTitle
+  >
+    <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        SKILL_GROUPS.map((group, i) => (
+          <Reveal client:visible delay={(i % 3) * 0.08} className="h-full">
+            <div class="border-border/60 bg-card/40 h-full rounded-xl border p-5">
+              <h3 class="text-foreground mb-3 text-sm font-semibold">{group.title}</h3>
+              <div class="flex flex-wrap gap-2">
+                {group.items.map((item) => (
+                  <Badge variant="outline" className="font-normal">
+                    {item}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </Reveal>
+        ))
+      }
+    </div>
+  </Section>
+
+  {/* ── Contact CTA ────────────────────────────────────────── */}
+  <Section class="pt-0">
+    <Reveal client:visible>
+      <div
+        class="from-brand-teal/10 to-brand-pink/10 border-border/60 relative overflow-hidden rounded-2xl border bg-gradient-to-br p-8 sm:p-12"
+      >
+        <h2 class="text-foreground text-2xl font-bold tracking-tight text-balance sm:text-3xl">
+          Let's build something fast and well-crafted.
+        </h2>
+        <p class="text-muted-foreground mt-3 max-w-xl text-pretty">
+          Looking for a Front-End engineer who treats performance and design systems as first-class?
+          Let's talk.
+        </p>
+        <div class="mt-6 flex flex-wrap gap-3">
+          <Button asChild variant="gradient" size="lg">
+            <a href="/contact">Get in touch</a>
+          </Button>
+          <Button asChild variant="outline" size="lg">
+            <a href={`mailto:${SITE.email}`}>{SITE.email}</a>
+          </Button>
+        </div>
+      </div>
+    </Reveal>
+  </Section>
+</PageLayout>

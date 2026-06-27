@@ -1,0 +1,40 @@
+/* Pull design tokens + Tailwind v4 + tw-animate-css from the shared UI library.
+   The `@source` inside @leaner/ui/globals.css scans the ui package source, so
+   every @leaner/ui component class is emitted regardless of the pnpm symlink. */
+@import "@leaner/ui/globals.css";
+
+/* Scan this app's own templates for utility classes used directly here. */
+@source "../**/*.{astro,ts,tsx}";
+
+/* Self-hosted variable font via @fontsource (woff2, font-display: swap).
+   Imported here so it travels with the single global stylesheet. */
+@import "@fontsource-variable/inter";
+
+:root {
+  --font-sans:
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+html {
+  font-family: var(--font-sans);
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* Respect reduced motion globally as a safety net for CSS-driven motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

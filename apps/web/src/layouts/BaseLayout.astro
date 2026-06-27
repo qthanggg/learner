@@ -1,0 +1,64 @@
+---
+import "../styles/global.css"
+import { buildMeta, personSchema, type SeoInput } from "../lib/seo"
+import { SITE } from "../consts"
+
+type Props = SeoInput
+
+const meta = buildMeta(Astro.props)
+const jsonLd = JSON.stringify(personSchema())
+---
+
+<!doctype html>
+<html lang="en" class="dark scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href={meta.canonical} />
+    <meta name="generator" content={Astro.generator} />
+
+    <title>{meta.title}</title>
+    <meta name="description" content={meta.description} />
+    <meta name="author" content={SITE.author} />
+    <meta name="theme-color" content="#0b1020" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={meta.canonical} />
+    <meta property="og:title" content={meta.title} />
+    <meta property="og:description" content={meta.description} />
+    <meta property="og:image" content={meta.ogImage} />
+    <meta property="og:site_name" content={SITE.shortTitle} />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={meta.title} />
+    <meta name="twitter:description" content={meta.description} />
+    <meta name="twitter:image" content={meta.ogImage} />
+
+    <!-- No-FOUC theme + motion seeding. Runs before paint. -->
+    <script is:inline>
+      ;(function () {
+        try {
+          var t = localStorage.getItem("theme")
+          if (t == null) t = "dark"
+          document.documentElement.classList.toggle("dark", t !== "light")
+        } catch (e) {}
+        try {
+          if (localStorage.getItem("motion-mode") == null) {
+            // Default to "minimal" (cinematic is opt-in); seed so the store reads it.
+            localStorage.setItem("motion-mode", "minimal")
+          }
+        } catch (e) {}
+      })()
+    </script>
+
+    <set:html
+      value={`<script type="application/ld+json">${jsonLd}</script>`}
+    />
+  </head>
+  <body class="bg-background text-foreground min-h-dvh antialiased">
+    <slot />
+  </body>
+</html>

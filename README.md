@@ -11,6 +11,7 @@ Monorepo cá nhân, tech stack hiện đại: **pnpm + Turborepo**, **TypeScript
 
 ```
 apps/
+  web/                 # Portfolio cá nhân (Astro + React islands, deploy Vercel)
   storybook/           # Document & phát triển component (Storybook 9 + Vite)
 packages/
   ui/                  # Thư viện component shadcn dùng chung (@leaner/ui)

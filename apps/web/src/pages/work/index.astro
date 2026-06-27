@@ -1,0 +1,30 @@
+---
+import PageLayout from "../../layouts/PageLayout.astro"
+import Section from "../../components/astro/Section.astro"
+import ProjectCard from "../../components/astro/ProjectCard.astro"
+import CardMotion from "../../components/react/CardMotion.tsx"
+import { PROJECTS } from "../../data/projects"
+---
+
+<PageLayout
+  title="Work"
+  description="Case studies across travel booking, B2B virtual exhibitions, IoT marketplaces, and enterprise platforms."
+  path="/work"
+>
+  <Section
+    eyebrow="Portfolio"
+    title="Work & case studies"
+    description="Four products spanning live OTA funnels, a 15-app virtual-exhibition monorepo, IoT commerce, and enterprise software."
+    animatedTitle
+  >
+    <div class="grid gap-6 md:grid-cols-2">
+      {
+        PROJECTS.map((project, i) => (
+          <CardMotion client:visible delay={(i % 2) * 0.08} className="h-full">
+            <ProjectCard project={project} />
+          </CardMotion>
+        ))
+      }
+    </div>
+  </Section>
+</PageLayout>
