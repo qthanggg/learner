@@ -22,14 +22,14 @@ packages/
 
 ## Lệnh thường dùng
 
-| Lệnh | Mô tả |
-| --- | --- |
-| `pnpm install` | Cài toàn bộ workspace |
-| `pnpm storybook` | Chạy Storybook (mặc định cổng 6006) |
-| `pnpm build-storybook` | Build Storybook tĩnh |
-| `pnpm lint` | Lint toàn repo qua Turborepo |
-| `pnpm check-types` | Kiểm tra type toàn repo |
-| `pnpm format` | Format bằng Prettier |
+| Lệnh                   | Mô tả                               |
+| ---------------------- | ----------------------------------- |
+| `pnpm install`         | Cài toàn bộ workspace               |
+| `pnpm storybook`       | Chạy Storybook (mặc định cổng 6006) |
+| `pnpm build-storybook` | Build Storybook tĩnh                |
+| `pnpm lint`            | Lint toàn repo qua Turborepo        |
+| `pnpm check-types`     | Kiểm tra type toàn repo             |
+| `pnpm format`          | Format bằng Prettier                |
 
 ## Thêm component shadcn
 
