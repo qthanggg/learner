@@ -5,6 +5,7 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "env": ["CONTACT_PHONE", "CONTACT_LINKEDIN"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**", ".astro/**"]
     },
     "dev": {
@@ -15,7 +16,8 @@
       "dependsOn": ["^lint"]
     },
     "check-types": {
-      "dependsOn": ["^check-types"]
+      "dependsOn": ["^check-types"],
+      "env": ["CONTACT_PHONE", "CONTACT_LINKEDIN"]
     },
     "storybook": {
       "cache": false,

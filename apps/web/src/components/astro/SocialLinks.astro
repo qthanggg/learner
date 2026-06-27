@@ -1,5 +1,5 @@
 ---
-import { Github, Mail, Phone } from "lucide-react"
+import { Github, Linkedin, Mail, Phone } from "lucide-react"
 import { SITE } from "../../consts"
 
 interface Props {
@@ -17,6 +17,15 @@ const { class: className } = Astro.props
     class="border-border/60 text-muted-foreground hover:text-foreground hover:border-foreground/30 inline-flex size-10 items-center justify-center rounded-full border transition-colors"
   >
     <Github className="size-4" />
+  </a>
+  <a
+    href={SITE.linkedin}
+    target="_blank"
+    rel="noopener noreferrer"
+    aria-label="LinkedIn"
+    class="border-border/60 text-muted-foreground hover:text-foreground hover:border-foreground/30 inline-flex size-10 items-center justify-center rounded-full border transition-colors"
+  >
+    <Linkedin className="size-4" />
   </a>
   <a
     href={`mailto:${SITE.email}`}

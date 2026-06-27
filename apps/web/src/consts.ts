@@ -13,7 +13,9 @@ export const SITE = {
   role: "Front-End Engineer",
   location: "Ho Chi Minh City, Vietnam",
   email: "quocthang2603@gmail.com",
-  phone: "0773840946",
+  // Thông tin liên hệ riêng tư — đọc từ .env (không commit), không prefix PUBLIC_ nên không lọt vào bundle client.
+  phone: import.meta.env.CONTACT_PHONE ?? "",
+  linkedin: import.meta.env.CONTACT_LINKEDIN ?? "",
   github: "https://github.com/qthanggg",
   storybookUrl: "https://learner-storybook.vercel.app/",
   cvPath: "/cv/Pham-Huynh-Quoc-Thang-CV.pdf",
@@ -27,5 +29,6 @@ export const NAV = [
 
 export const SOCIALS = [
   { label: "GitHub", href: SITE.github, icon: "github" },
+  { label: "LinkedIn", href: SITE.linkedin, icon: "linkedin" },
   { label: "Email", href: `mailto:${SITE.email}`, icon: "mail" },
 ] as const

@@ -2,11 +2,23 @@
 import "../styles/global.css"
 import { buildMeta, personSchema, type SeoInput } from "../lib/seo"
 import { SITE } from "../consts"
+import {
+  FloatingContact,
+  type ContactChannel,
+} from "@leaner/ui/components/floating-contact"
 
 type Props = SeoInput
 
 const meta = buildMeta(Astro.props)
 const jsonLd = JSON.stringify(personSchema())
+
+// Kênh liên hệ cho widget nổi — chỉ thêm kênh nào có dữ liệu (đọc từ .env).
+const contactChannels: ContactChannel[] = [
+  ...(SITE.phone ? [{ type: "zalo", href: `https://zalo.me/${SITE.phone}` } as const] : []),
+  ...(SITE.linkedin ? [{ type: "linkedin", href: SITE.linkedin } as const] : []),
+  ...(SITE.phone ? [{ type: "phone", href: `tel:${SITE.phone}` } as const] : []),
+  { type: "email", href: `mailto:${SITE.email}` },
+]
 ---
 
 <!doctype html>
@@ -60,5 +72,6 @@ const jsonLd = JSON.stringify(personSchema())
   </head>
   <body class="bg-background text-foreground min-h-dvh antialiased">
     <slot />
+    <FloatingContact client:idle channels={contactChannels} />
   </body>
 </html>

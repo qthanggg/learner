@@ -1,3 +1,7 @@
+# env (giữ lại .env.example)
+.env
+.env.*
+!.env.example
 # build output
 dist/
 # generated types
