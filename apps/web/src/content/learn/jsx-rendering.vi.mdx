@@ -1,0 +1,215 @@
+---
+topic: jsx-rendering
+lang: vi
+title: "JSX & cách React render"
+summary: "JSX biên dịch thành gì, các quy tắc khi viết, cách nhúng biểu thức, và mô hình render → commit → re-render giúp mọi thứ về sau trở nên dễ hiểu."
+category: Fundamentals
+level: beginner
+order: 10
+readingTime: 11
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## JSX chỉ là lời gọi hàm
+
+JSX trông giống HTML nhưng thực ra là "đường cú pháp" (syntax sugar). Trình biên dịch (Babel / SWC / TypeScript) biến mỗi thẻ thành một lời gọi JavaScript thuần:
+
+```jsx
+const el = <h1 className="title">Hello</h1>
+// biên dịch thành →
+const el = jsx("h1", { className: "title", children: "Hello" })
+```
+
+Lời gọi đó **không** tạo ra DOM node. Nó trả về một **object thuần** — gọi là _React element_ — mô tả thứ bạn muốn hiển thị:
+
+```js
+{ type: "h1", props: { className: "title", children: "Hello" } }
+```
+
+Vì JSX là một biểu thức, bạn có thể gán nó vào biến, return từ hàm, hay tạo bên trong `map()`. Đây là ý quan trọng nhất: **component là một hàm trả về phần mô tả giao diện, chứ không phải giao diện thật.**
+
+<Callout variant="note" title="JSX và React là hai thứ tách biệt">
+  JSX là một phần mở rộng cú pháp; React là một thư viện. Chúng thường đi cùng nhau, nhưng JSX không
+  "biết" gì về React — nó chỉ mô tả một cây. React mới là thứ _đọc_ phần mô tả đó và cập nhật DOM.
+</Callout>
+
+## Ba quy tắc của JSX
+
+JSX khắt khe hơn HTML. Chỉ có ba quy tắc cần nhớ.
+
+**1. Trả về một element gốc duy nhất.** Component trả về một element. Muốn trả nhiều thứ, hãy bọc chúng trong một thẻ cha hoặc một fragment rỗng `<>…</>`:
+
+```jsx
+function Profile() {
+  return (
+    <>
+      <h1>Hedy Lamarr</h1>
+      <img src="/hedy.jpg" alt="Hedy Lamarr" />
+    </>
+  )
+}
+```
+
+Fragment gom các phần tử anh em mà không thêm node thừa vào DOM. Vì sao bắt buộc một gốc? Vì JSX biên dịch thành object, mà một hàm chỉ trả về được một object — trả về hai thẻ cạnh nhau giống như trả về hai giá trị mà không gói trong mảng.
+
+**2. Đóng mọi thẻ.** HTML dễ dãi với `<img>` hay `<li>` không cần thẻ đóng; JSX thì không. Thẻ tự đóng phải có dấu gạch chéo: `<img />`, `<br />`.
+
+**3. camelCase cho hầu hết thuộc tính.** Tên thuộc tính JSX trở thành key trên một object JavaScript, nên phần lớn viết theo camelCase: `strokeWidth`, `tabIndex`, `onClick`. Hai cái tên đặc biệt vì chúng là từ khoá dành riêng trong JavaScript:
+
+```jsx
+<label htmlFor="email" className="field">
+  Email
+</label>
+```
+
+<Callout variant="tip" title="Vì sao là className chứ không phải class">
+  `class` là từ khoá dành riêng trong JavaScript, mà JSX chính là JavaScript — nên thuộc tính là
+  `className`. Cũng vì lý do đó, thuộc tính `for` của thẻ `<label>` trở thành `htmlFor`. Công cụ như
+  transform.tools/html-to-jsx sẽ chuyển đổi HTML hàng loạt giúp bạn.
+</Callout>
+
+## JavaScript trong JSX với dấu ngoặc nhọn
+
+Dấu ngoặc nhọn `{ }` "mở một cửa sổ" trở lại JavaScript ngay từ bên trong markup. Bất cứ thứ gì nằm giữa chúng là một biểu thức sẽ được tính toán rồi chèn vào.
+
+```jsx
+function Greeting({ name }) {
+  const today = new Date().toLocaleDateString()
+  return (
+    <p>
+      Hello, {name}! Today is {today}.
+    </p>
+  )
+}
+```
+
+Bạn dùng được ngoặc nhọn ở đúng hai vị trí: làm **text** ngay bên trong một thẻ (`<h1>{name}</h1>`), và làm **giá trị thuộc tính** ngay sau dấu `=` (`src={avatar}`). Lưu ý `src="{avatar}"` có dấu nháy sẽ truyền chuỗi ký tự `"{avatar}"` — bỏ dấu nháy đi để truyền biến.
+
+Một điểm hay gây bối rối là "ngoặc nhọn kép" bạn thấy ở inline style. Đó không phải cú pháp đặc biệt — nó là một object `{ }` nằm _bên trong_ ngoặc nhọn biểu thức `{ }`:
+
+```jsx
+<div style={{ color: "pink", backgroundColor: "black" }}>Themed</div>
+```
+
+### Điều kiện
+
+Vì ngoặc nhọn chứa biểu thức (không phải câu lệnh), bạn dùng các toán tử hợp với biểu thức. `if` không nhét vào được, nhưng `&&`, toán tử ba ngôi, và một biến tính sẵn phía trên `return` đều dùng được:
+
+```jsx
+function Item({ name, isPacked }) {
+  return (
+    <li className="item">
+      {name} {isPacked && "✅"}
+    </li>
+  )
+}
+
+// Ternary khi bạn cần nhánh "else"
+;<span>{isLoggedIn ? <Dashboard /> : <LoginButton />}</span>
+```
+
+<Callout variant="warn" title="Cẩn thận với 0 khi dùng &&">
+  `{count && <Badge />}` sẽ render ra một số `0` lạc lõng khi `count` bằng `0`, vì `&&` trả về vế
+  trái falsy mà React _vẫn_ render số không. Hãy ép về boolean: `{count > 0 && <Badge />}`.
+</Callout>
+
+### Danh sách
+
+Render mảng bằng cách map mỗi phần tử thành một element. Mỗi phần tử anh em cần một `key` ổn định để React theo dõi được chúng qua các lần re-render:
+
+```jsx
+function TodoList({ todos }) {
+  return (
+    <ul>
+      {todos.map((todo) => (
+        <li key={todo.id}>{todo.text}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+<Callout variant="warn" title="Đừng dùng index của mảng làm key">
+  Index trông tiện nhưng sẽ hỏng khi danh sách sắp xếp lại, chèn, hoặc xoá — React tái sử dụng nhầm
+  DOM và state. Hãy dùng id ổn định từ dữ liệu của bạn. Key chỉ cần duy nhất trong phạm vi các phần
+  tử anh em.
+</Callout>
+
+## Component trả về element
+
+Component là một hàm có tên **viết hoa** chữ cái đầu và trả về React element:
+
+```jsx
+function Greeting({ name }) {
+  return <p>Hello, {name}</p>
+}
+
+// Dùng như <Greeting name="Thang" />, biên dịch thành jsx(Greeting, { name: "Thang" })
+```
+
+Chữ viết hoa rất quan trọng: `<greeting />` sẽ bị coi là thẻ HTML, còn `<Greeting />` báo cho React biết cần _gọi hàm của bạn_. Mọi thứ trong `{ }` là biểu thức JavaScript sẽ được tính toán rồi chèn vào.
+
+## Render, rồi commit
+
+Khi React render, về mặt khái niệm có hai bước:
+
+1. **Render phase** — React gọi các hàm component để lấy cây element mới. Bước này "thuần khiết": chưa đụng vào DOM.
+2. **Commit phase** — React so sánh cây mới với cây trước đó (diffing) rồi áp dụng **tập thay đổi DOM nhỏ nhất** có thể.
+
+```
+state đổi ──▶ React gọi lại component ──▶ cây element mới
+                                              │
+                                   so sánh với cây cũ
+                                              │
+                                chỉ vá phần thay đổi (DOM)
+```
+
+Còn một tác nhân thứ ba xảy ra trước cả hai bước trên: **lần render đầu tiên** (initial render), diễn ra một lần khi app vừa mount. Sau đó, mỗi lần cập nhật đều đi theo cùng một vòng: tác nhân → render → commit.
+
+Một component chạy lại ("re-render") khi:
+
+- **state** của nó thay đổi (`useState` / `useReducer`),
+- **props** thay đổi do component cha render lại, hoặc
+- giá trị **context** mà nó dùng thay đổi.
+
+<Callout variant="warn" title="Re-render ≠ cập nhật DOM">
+  Re-render nghĩa là React *gọi lại hàm của bạn*. Nó không có nghĩa là DOM đã đổi. Nếu kết quả y
+  hệt, commit phase sẽ không vá gì cả. Gọi hàm thì rẻ, đụng DOM mới đắt — chính sự tách bạch này
+  khiến React nhanh.
+</Callout>
+
+### Mỗi lần render là một "ảnh chụp"
+
+Khi React gọi component của bạn, các props, state, và event handler mà nó trả về thuộc về _lần render đó_. Chúng là một ảnh chụp (snapshot) bị đóng băng tại thời điểm đó — một thay đổi state về sau không quay ngược lại sửa biến của lần render trước. Đây là lý do các cập nhật state có vẻ "trễ": bạn luôn đọc đúng cái snapshot bạn đã render cùng, và giá trị mới chỉ xuất hiện ở lần render _tiếp theo_.
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0)
+  // Trong lần render này, `count` là một số cố định. Bấm nút sẽ lên lịch một lần
+  // render mới với count + 1; nó không đổi `count` trong snapshot hiện tại.
+  return <button onClick={() => setCount(count + 1)}>{count}</button>
+}
+```
+
+## Vài quy tắc render khác gặp ngay ngày đầu
+
+- **`false`, `null`, `undefined` không render gì** — rất tiện cho điều kiện: `{isOpen && <Menu />}`.
+- **`true` và các boolean cũng không render gì**, nhưng number và string thì _có_ render (nhớ lại cái bẫy `0` ở trên).
+- **Đừng render thẳng object.** `{user}` sẽ báo lỗi "Objects are not valid as a React child"; `{user.name}` mới đúng.
+- **JSX là bất biến.** Bạn không sửa một element sau khi tạo — bạn mô tả trạng thái kế tiếp và để React đối chiếu (reconcile).
+- **Comment bên trong JSX** đặt trong ngoặc nhọn: `{/* như thế này */}`.
+
+## Mô hình tư duy cần nhớ
+
+> UI = f(state). Bạn đưa cho React một hàm theo state hiện tại; React lo phần DOM.
+
+Mọi thứ còn lại trong React — hooks, key, memoization, Suspense — đều sinh ra để làm cho phương trình đó **nhanh** và **dễ đoán**. Giữ chặt nó khi bạn đi sâu hơn.
+
+## Tóm tắt
+
+- JSX biên dịch thành các lời gọi `jsx(type, props)` trả về object element thuần — phần mô tả, không phải DOM.
+- Ba quy tắc: một gốc (dùng fragment để gom), đóng mọi thẻ, camelCase thuộc tính (`className`, `htmlFor`).
+- `{ }` nhúng biểu thức JavaScript dưới dạng text hoặc giá trị thuộc tính; dùng `&&` / ternary cho điều kiện và `map` + `key` cho danh sách.
+- Render là một vòng lặp: **tác nhân → render (gọi hàm của bạn) → commit (vá DOM)**, và mỗi lần render là một snapshot bất biến.
+- Re-render chỉ là việc React gọi lại hàm của bạn; nó chỉ đụng tới DOM khi kết quả thực sự thay đổi.

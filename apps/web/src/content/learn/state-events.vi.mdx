@@ -1,0 +1,299 @@
+---
+topic: state-events
+lang: vi
+title: "State & sự kiện với useState"
+summary: "useState hoạt động ra sao, vì sao state là snapshot, batching và dạng updater, cập nhật bất biến cho object và array, object sự kiện, và lifting state up."
+category: Fundamentals
+level: beginner
+order: 30
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## useState: bộ nhớ kích hoạt re-render
+
+Props đến từ trên xuống và chỉ-đọc. **State** là dữ liệu mà component sở hữu và có thể thay đổi theo thời gian. `useState` cho bạn một giá trị kèm một hàm setter, và việc gọi setter báo cho React render lại với giá trị mới.
+
+```jsx
+import { useState } from "react"
+
+function Counter() {
+  const [count, setCount] = useState(0) // 0 là giá trị khởi tạo
+
+  return <button onClick={() => setCount(count + 1)}>Count: {count}</button>
+}
+```
+
+`useState` trả về một cặp: giá trị hiện tại và hàm để cập nhật nó. Tham số là giá trị **khởi tạo**, chỉ dùng ở lần render đầu tiên. Ở mọi lần render sau, React trả lại giá trị mới nhất đã lưu — biến `count` cục bộ của bạn, nhưng được "nhớ" xuyên qua các lần render.
+
+State chứa được mọi kiểu — string, number, boolean, object, array, hay `null`. Khai báo một `useState` cho mỗi mẩu dữ liệu độc lập:
+
+```jsx
+const [name, setName] = useState("")
+const [age, setAge] = useState(0)
+const [isOpen, setIsOpen] = useState(false)
+const [items, setItems] = useState([])
+```
+
+<Callout variant="note" title="Vì sao cần setter, không phải count = count + 1">
+  Gán lại một biến cục bộ sẽ chẳng render lại gì cả. Gọi `setCount` làm hai việc: lưu giá trị kế
+  tiếp, và lên lịch re-render để màn hình phản ánh giá trị đó.
+</Callout>
+
+<Callout variant="tip" title="Giá trị khởi tạo tốn kém? Truyền một hàm">
+  Nếu state khởi tạo tốn công tính, hãy truyền một _hàm khởi tạo_ — `useState(() =>
+  createInitial())` — và React chỉ chạy nó ở lần render đầu. Lưu ý `useState(createInitial())` sẽ
+  gọi nó ở mọi lần render rồi vứt kết quả đi.
+</Callout>
+
+## State là snapshot của mỗi lần render
+
+Gần như ai cũng vấp chỗ này. Trong một lần render, giá trị state là một **snapshot cố định** — một hằng số cho lần render đó. Nó không đổi giữa chừng, kể cả sau khi bạn đã gọi setter.
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0)
+
+  function handleClick() {
+    setCount(count + 1)
+    setCount(count + 1)
+    setCount(count + 1)
+    // count ở đây vẫn là 0, nên kết quả là 1 — không phải 3
+  }
+
+  return <button onClick={handleClick}>{count}</button>
+}
+```
+
+Cả ba lời gọi đều đọc cùng một `count` (0) từ snapshot của lần render này, nên đều tính ra `1`. Cách sửa là dạng updater ở dưới. Mô hình tư duy: một lần render là một tấm ảnh của state tại một thời điểm; set state lên lịch cho tấm ảnh _kế tiếp_, chứ không sửa tấm ảnh hiện tại.
+
+Cùng quy tắc snapshot đó giải thích vì sao state đọc bên trong một timeout là giá trị tại lúc timeout được _lên lịch_, không phải giá trị mới nhất:
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0)
+
+  function handleClick() {
+    setCount(count + 1)
+    setTimeout(() => {
+      alert(count) // alert 0, không phải 1 — chụp từ snapshot của lần render này
+    }, 2000)
+  }
+  // ...
+}
+```
+
+## Batching: nhiều setter, một lần render
+
+Vì hiệu năng, React **gộp** (batch) nhiều lần cập nhật state xảy ra trong cùng một sự kiện thành một lần re-render duy nhất. Set ba state khác nhau trong một handler chỉ render một lần, không phải ba.
+
+```jsx
+function handleSubmit() {
+  setLoading(true)
+  setError(null)
+  setSubmitted(true)
+  // một lần re-render, với cả ba đã được áp dụng
+}
+```
+
+Từ React 18 trở đi, batching còn áp dụng cả trong promise, `setTimeout`, và handler sự kiện gốc — nên hành vi nhất quán ở mọi nơi. Đây cũng là lý do mô hình snapshot vẫn đúng: state không "sống" giữa chừng handler, mà được áp dụng cùng nhau trước lần render kế tiếp.
+
+## Dạng hàm updater
+
+Khi state kế tiếp phụ thuộc vào state trước đó, hãy truyền một **hàm** vào setter. React xếp nó vào hàng đợi và gọi với giá trị mới nhất, dùng giá trị trả về làm state kế tiếp.
+
+```jsx
+function handleClick() {
+  setCount((c) => c + 1)
+  setCount((c) => c + 1)
+  setCount((c) => c + 1)
+  // 0 → 1 → 2 → 3 ✅
+}
+```
+
+Mỗi updater nhận kết quả của cái trước, nên chúng cộng dồn đúng. React áp dụng hàng đợi theo thứ tự. Bạn thậm chí có thể trộn các dạng — một giá trị thường sẽ thay thế bất kỳ thứ gì đang trong hàng đợi, rồi các updater sau xây tiếp lên nó:
+
+```jsx
+function handleClick() {
+  setCount(count + 5) // hàng đợi: thay bằng 5
+  setCount((c) => c + 1) // hàng đợi: 5 → 6
+  setCount(42) // hàng đợi: thay bằng 42
+  // kết quả cuối: 42
+}
+```
+
+Quy tắc bỏ túi: nếu giá trị kế tiếp được tính từ giá trị hiện tại, hãy viết `setX((x) => ...)`. Cách này luôn an toàn và tránh được lỗi giá trị cũ (stale).
+
+<Callout variant="warn" title="Updater phải pure">
+  Một hàm updater chỉ nên tính và trả về state kế tiếp. Đừng set state khác, kích hoạt side effect,
+  hay mutate tham số bên trong nó — ở Strict Mode React có thể gọi nó hai lần để lộ ra sự không
+  thuần khiết, và side effect sẽ chạy hai lần.
+</Callout>
+
+## Đừng bao giờ mutate state — cập nhật bất biến
+
+React phát hiện thay đổi bằng cách so sánh tham chiếu với `Object.is`. Nếu bạn mutate một object hay array tại chỗ, tham chiếu vẫn y nguyên, nên React có thể bỏ qua việc re-render. Hãy luôn tạo một object hay array **mới**.
+
+```jsx
+// Object — copy bằng spread rồi ghi đè
+const [user, setUser] = useState({ name: "Thang", age: 20 })
+// ❌ user.age = 21; setUser(user)
+setUser({ ...user, age: 21 }) // ✅ object mới
+```
+
+Spread là **nông** (shallow) — nó chỉ copy một tầng. Với object lồng nhau, hãy copy từng tầng mà bạn thay đổi:
+
+```jsx
+const [user, setUser] = useState({
+  name: "Thang",
+  address: { city: "Hanoi", zip: "10000" },
+})
+
+// Sửa một field lồng bên trong — copy cả hai tầng
+setUser({
+  ...user,
+  address: { ...user.address, city: "Da Nang" },
+})
+```
+
+### Array: bảng tra cứu các thao tác không mutate
+
+Hãy coi array trong state cũng là chỉ-đọc. Tránh các method mutate ở bên trái; dùng các method trả về mảng mới ở bên phải.
+
+```jsx
+const [todos, setTodos] = useState([])
+
+// thêm (tránh push / unshift)
+setTodos([...todos, newTodo]) // cuối
+setTodos([newTodo, ...todos]) // đầu
+
+// xoá (tránh splice / pop)
+setTodos(todos.filter((t) => t.id !== id))
+
+// thay / sửa một phần tử (tránh todos[i] = ...)
+setTodos(todos.map((t) => (t.id === id ? { ...t, done: true } : t)))
+
+// chèn tại vị trí i (tránh splice)
+setTodos([...todos.slice(0, i), newTodo, ...todos.slice(i)])
+
+// sort hay reverse — copy trước (chúng mutate!)
+setTodos([...todos].sort((a, b) => a.order - b.order))
+```
+
+| Thao tác | Tránh (mutate)           | Dùng (trả về mới)           |
+| -------- | ------------------------ | --------------------------- |
+| thêm     | `push`, `unshift`        | spread `[...arr, x]`        |
+| xoá      | `pop`, `shift`, `splice` | `filter`                    |
+| thay     | `arr[i] = x`             | `map`                       |
+| sắp xếp  | `sort`, `reverse`        | copy bằng spread rồi `sort` |
+
+<Callout variant="warn" title="Bản sao nông vẫn dùng chung object lồng bên trong">
+  `const next = [...list]` copy mảng, nhưng `next[0]` _vẫn là cùng object_ với `list[0]`. Làm
+  `next[0].seen = true` sẽ mutate bản gốc. Để sửa một phần tử, hãy `map` và trả về một object
+  **mới** (`{ ...item, seen: true }`) — đừng thò tay vào bản sao.
+</Callout>
+
+## Phản hồi sự kiện
+
+Bạn gắn handler bằng các prop camelCase như `onClick`, `onChange`, `onSubmit`. Hãy truyền **tham chiếu hàm**, không phải lời gọi hàm.
+
+```jsx
+<button onClick={handleClick}>OK</button>        // ✅ tham chiếu
+<button onClick={handleClick()}>OK</button>      // ❌ gọi ngay lúc render
+<button onClick={() => save(id)}>Save</button>   // ✅ arrow inline để truyền tham số
+```
+
+Khác biệt này quan trọng: `onClick={handleClick}` đưa cho React hàm để gọi _khi click_. `onClick={handleClick()}` gọi nó ngay lập tức lúc render và truyền giá trị trả về — thường là `undefined` — đồng thời làm nó chạy ở mỗi lần render.
+
+### Object sự kiện
+
+React truyền cho handler của bạn một **SyntheticEvent** — một lớp bọc mỏng đa trình duyệt quanh sự kiện DOM gốc, với cùng API (`e.preventDefault()`, `e.target`, `e.stopPropagation()`). Nó hành xử nhất quán trên mọi trình duyệt.
+
+```jsx
+function SearchBox() {
+  const [q, setQ] = useState("")
+  return (
+    <form onSubmit={(e) => e.preventDefault()}>
+      <input value={q} onChange={(e) => setQ(e.target.value)} />
+    </form>
+  )
+}
+```
+
+`e.preventDefault()` chặn hành vi mặc định của trình duyệt (như form tải lại trang khi submit). `e.target` là phần tử DOM đã kích hoạt sự kiện — `e.target.value` cho input, `e.target.checked` cho checkbox.
+
+### Lan truyền và stopPropagation
+
+Sự kiện trong React **nổi bọt** (bubble): click vào một con sẽ chạy `onClick` của con, rồi của cha, rồi lên cao dần trong cây. Gọi `e.stopPropagation()` để chặn sự kiện đi tiếp lên trên.
+
+```jsx
+function Toolbar() {
+  return (
+    <div onClick={() => console.log("toolbar clicked")}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation() // onClick của div sẽ không chạy
+          console.log("button clicked")
+        }}
+      >
+        Click
+      </button>
+    </div>
+  )
+}
+```
+
+<Callout variant="note" title="preventDefault và stopPropagation">
+  Chúng giải quyết hai vấn đề khác nhau. `preventDefault` chặn hành động dựng sẵn của _trình duyệt_
+  (submit, đi theo link). `stopPropagation` chặn _sự kiện_ nổi bọt lên handler của cha. Bạn có thể
+  gọi một trong hai, cả hai, hay không cái nào.
+</Callout>
+
+## Lifting state up (đưa state lên trên)
+
+Khi hai component anh em cần cùng một dữ liệu, đừng nhân đôi state ở mỗi bên. Hãy đưa nó lên component cha chung gần nhất rồi truyền giá trị xuống qua props kèm một callback setter. Cách này giữ **một nguồn sự thật duy nhất** (single source of truth).
+
+```jsx
+function Parent() {
+  const [value, setValue] = useState("")
+  return (
+    <>
+      <Input value={value} onChange={setValue} />
+      <Preview text={value} />
+    </>
+  )
+}
+
+function Input({ value, onChange }) {
+  return <input value={value} onChange={(e) => onChange(e.target.value)} />
+}
+
+function Preview({ text }) {
+  return <p>{text}</p>
+}
+```
+
+Component cha sở hữu state; các con nhận nó qua props và báo thay đổi ngược lên qua callback. Dữ liệu đi xuống, sự kiện đi lên — vẫn là pattern từ props, nay vận hành cho state dùng chung. Một ví dụ kinh điển là một bộ accordion mà mỗi lúc chỉ một panel mở: component cha giữ `activeIndex`, và mỗi panel báo click lên trên để các anh em phản ứng theo.
+
+<Callout variant="tip" title="Chỉ lift đúng mức cần thiết">
+  Hãy giữ state cục bộ nhất có thể. Chỉ lift nó lên cha gần nhất mà _cả hai_ bên cùng dùng — đẩy cao
+  hơn mức cần thiết sẽ làm nhiều phần cây re-render và làm luồng dữ liệu rối hơn.
+</Callout>
+
+## Điều cần nhớ
+
+> State là snapshot của mỗi lần render. React gộp các cập nhật trong một sự kiện, nên hãy dùng dạng
+> updater `setX(x => ...)` mỗi khi giá trị kế tiếp phụ thuộc vào giá trị trước. Cập nhật object và
+> array một cách bất biến (copy, rồi sửa), dùng `preventDefault`/`stopPropagation` của object sự
+> kiện khi cần, và đưa state lên cha chung gần nhất khi các anh em phải dùng chung.
+
+Tóm tắt nhanh:
+
+- `useState` trả về `[value, setter]`; tham số là giá trị khởi tạo, dùng một lần.
+- Một lần render thấy một snapshot đông cứng của state; set nó sẽ lên lịch lần render kế.
+- Nhiều setter trong một sự kiện được gộp thành một lần re-render.
+- Dùng `setX(prev => ...)` cho các cập nhật nối tiếp hay suy ra từ giá trị cũ.
+- Đừng bao giờ mutate — spread object, dùng `map`/`filter`/spread cho array.
+- `e.preventDefault()` chặn mặc định của trình duyệt; `e.stopPropagation()` chặn nổi bọt.
+- Đưa state dùng chung lên cha chung gần nhất để có một nguồn sự thật duy nhất.

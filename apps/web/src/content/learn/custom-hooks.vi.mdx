@@ -1,0 +1,251 @@
+---
+topic: custom-hooks
+lang: vi
+title: "Custom hooks"
+summary: "Tách logic stateful tái sử dụng vào các hàm use*, quy tắc đặt tên, vì sao hook chia sẻ logic chứ không chia sẻ state, hộp đồ nghề ví dụ thực tế, và khi nào không nên tách."
+category: Hooks
+level: intermediate
+order: 100
+readingTime: 9
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Tách logic tái sử dụng
+
+Custom hook chỉ là một hàm JavaScript có tên bắt đầu bằng `use` và **gọi các hook khác**. Đó là cơ chế React cho bạn để chia sẻ _logic stateful_ giữa các component — không phải UI, không phải bản thân state, mà là "công thức" thiết lập state và effect.
+
+Giả sử hai component cùng theo dõi một boolean toggle. Thay vì copy-paste `useState` và các handler, hãy nâng logic lên thành một hook:
+
+```jsx
+function useToggle(initial = false) {
+  const [on, setOn] = useState(initial)
+  const toggle = useCallback(() => setOn((v) => !v), [])
+  return [on, toggle]
+}
+
+// Giờ component nào cũng chỉ một dòng:
+function Panel() {
+  const [open, toggleOpen] = useToggle()
+  return <button onClick={toggleOpen}>{open ? "Ẩn" : "Hiện"}</button>
+}
+```
+
+Component đọc gọn gàng còn logic toggle nằm ở một chỗ đã được test. Custom hook là cách chính để giữ component nhỏ khi app lớn dần.
+
+## Một ví dụ tạo động lực: useOnlineStatus
+
+Giả sử một `StatusBar` hiển thị người dùng có online hay không và một `SaveButton` tự vô hiệu hoá khi offline. Cả hai cần cùng một logic: subscribe vào các sự kiện `online`/`offline` của trình duyệt. Không có hook, bạn sẽ lặp lại `useState` + `useEffect` ở cả hai. Hãy tách ra một lần:
+
+```js
+import { useState, useEffect } from "react"
+
+function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(true)
+  useEffect(() => {
+    function handleOnline() {
+      setIsOnline(true)
+    }
+    function handleOffline() {
+      setIsOnline(false)
+    }
+    window.addEventListener("online", handleOnline)
+    window.addEventListener("offline", handleOffline)
+    return () => {
+      window.removeEventListener("online", handleOnline)
+      window.removeEventListener("offline", handleOffline)
+    }
+  }, [])
+  return isOnline
+}
+```
+
+Cả hai component giờ chỉ đọc một giá trị duy nhất, và không cái nào phải biết subscription hoạt động ra sao:
+
+```jsx
+function StatusBar() {
+  const isOnline = useOnlineStatus()
+  return <h1>{isOnline ? "✅ Online" : "❌ Disconnected"}</h1>
+}
+
+function SaveButton() {
+  const isOnline = useOnlineStatus()
+  return <button disabled={!isOnline}>{isOnline ? "Save progress" : "Reconnecting..."}</button>
+}
+```
+
+Logic effect được viết một lần và ý định — "cho tôi biết có đang online không" — được đặt tên.
+
+## Các quy tắc
+
+Custom hook tuân theo cùng [Rules of Hooks](/learn) như các hook có sẵn, cộng thêm một quy tắc đặt tên:
+
+- **Tên phải bắt đầu bằng `use`** theo sau là chữ in hoa (`useOnlineStatus`, không phải `useonlinestatus`). Đây không phải chuyện hình thức — linter của React dựa vào tiền tố để biết hàm này có thể gọi hook, nhờ đó áp dụng rules of hooks bên trong nó. `getToggle` sẽ bị cảnh báo hoặc hỏng ngầm.
+- **Nó được gọi các hook khác** (`useState`, `useEffect`, `useContext`, kể cả custom hook khác). Hàm thường thì không.
+- **Gọi hook ở cấp cao nhất** của custom hook — không nằm trong điều kiện, vòng lặp hay hàm lồng. Giống như mọi component.
+- **Thân hàm phải thuần.** Như một component, custom hook chạy lại ở mỗi lần render của component dùng nó, nên nó không được có side effect lúc render — những thứ đó nằm trong effect.
+
+<Callout variant="warn" title="Hàm không gọi hook thì không phải hook">
+  Nếu hàm helper của bạn chẳng bao giờ gọi `useState`/`useEffect`/... hãy để nó là hàm thường và
+  *đừng* thêm tiền tố `use`. Tiền tố là lời hứa rằng rules of hooks được áp dụng.
+</Callout>
+
+## Custom hook chia sẻ logic, không chia sẻ state
+
+Đây là điều người ta hay hiểu sai nhất. Mỗi **lần gọi** một custom hook nhận **state hoàn toàn riêng biệt**. Hai component dùng `useToggle` không chia sẻ chung một toggle; ngay cả hai lần gọi trong _cùng_ một component cũng độc lập:
+
+```jsx
+function Form() {
+  const [showName, toggleName] = useToggle() // state #1
+  const [showEmail, toggleEmail] = useToggle() // state #2 — tách hẳn
+  // toggle cái này không bao giờ ảnh hưởng cái kia
+}
+```
+
+Custom hook là một công thức, không phải biến dùng chung. Khi bạn gọi nó, React chạy lại công thức từ đầu và cấp cho lần gọi đó các "ô" `useState`/`useEffect` riêng. Nếu bạn thực sự muốn các component _dùng chung cùng một state_, đó là việc của context (hoặc thư viện state) — không phải bản thân một custom hook.
+
+<Callout variant="note" title="Giá trị reactive chảy giữa các hook">
+  Bạn có thể truyền props hoặc state vào một custom hook (`useFetch(url)`), và vì hook chạy lại ở
+  mỗi lần render, nó luôn thấy giá trị mới nhất. Các hook kết hợp thành một luồng dữ liệu sống,
+  không phải một lần thiết lập duy nhất.
+</Callout>
+
+## Một hộp đồ nghề ví dụ
+
+**`useLocalStorage`** — state được lưu bền vào `localStorage`:
+
+```jsx
+function useLocalStorage(key, initial) {
+  const [value, setValue] = useState(() => {
+    const stored = localStorage.getItem(key)
+    return stored ? JSON.parse(stored) : initial
+  })
+
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value))
+  }, [key, value])
+
+  return [value, setValue]
+}
+```
+
+**`useDebouncedValue`** — trả về một giá trị chỉ cập nhật sau khi nó ngừng đổi trong `delay` ms; rất hợp cho ô tìm kiếm:
+
+```jsx
+function useDebouncedValue(value, delay = 300) {
+  const [debounced, setDebounced] = useState(value)
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(id) // huỷ nếu value đổi trước khi hết delay
+  }, [value, delay])
+
+  return debounced
+}
+
+// Dùng: chỉ fetch khi người dùng ngừng gõ
+const debouncedQuery = useDebouncedValue(query, 400)
+```
+
+**`useFetch`** — phác thảo logic lấy dữ liệu (loading/data/error gom một chỗ):
+
+```jsx
+function useFetch(url) {
+  const [state, setState] = useState({ data: null, loading: true, error: null })
+
+  useEffect(() => {
+    let active = true
+    setState({ data: null, loading: true, error: null })
+
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => active && setState({ data, loading: false, error: null }))
+      .catch((error) => active && setState({ data: null, loading: false, error }))
+
+    return () => {
+      active = false // bỏ qua kết quả nếu url đổi / component unmount
+    }
+  }, [url])
+
+  return state
+}
+```
+
+<Callout variant="tip" title="Luôn dọn dẹp việc async">
+  Cờ `active` (hoặc một `AbortController`) ngăn việc set state sau khi component unmount hoặc input
+  đã đổi — nguồn gốc kinh điển của cảnh báo và race condition trong hook fetch.
+</Callout>
+
+**`useEventListener`** — subscribe vào bất kỳ sự kiện nào và tự dọn dẹp, để component thôi phải viết tay boilerplate `addEventListener`:
+
+```jsx
+function useEventListener(target, event, handler) {
+  useEffect(() => {
+    const node = target ?? window
+    node.addEventListener(event, handler)
+    return () => node.removeEventListener(event, handler)
+  }, [target, event, handler])
+}
+
+// Dùng: đóng menu khi người dùng bấm Escape
+useEventListener(window, "keydown", (e) => {
+  if (e.key === "Escape") close()
+})
+```
+
+<Callout variant="note" title="Trả về array hay object?">
+  Quy ước theo đúng các hook có sẵn: trả về một **array** khi hai giá trị mang tính vị trí và sẽ được
+  đổi tên ngay tại nơi gọi (`const [open, toggle] = useToggle()`), và trả về một **object** khi có
+  nhiều field có tên để người gọi chọn lấy (`const { data, loading, error } = useFetch(url)`).
+</Callout>
+
+## Kết hợp (composition)
+
+Vì hook gọi hook, bạn dựng cái lớn từ những cái nhỏ. Một ô tìm kiếm có thể kết hợp `useFetch` và `useDebouncedValue` để từng mảnh vẫn nhỏ và dễ test:
+
+```jsx
+function useSearch(query) {
+  const debounced = useDebouncedValue(query, 400)
+  const { data, loading } = useFetch(`/api/search?q=${debounced}`)
+  return { results: data ?? [], loading }
+}
+```
+
+Khả năng kết hợp này là thứ làm custom hook mạnh mẽ: mỗi cái làm đúng một việc, và bạn xếp chồng chúng. Giá trị reactive (`query`) chảy từ hook này sang hook kế và luôn cập nhật ở mỗi lần render.
+
+<Callout variant="warn" title="Quy tắc dependency vẫn áp dụng bên trong hook">
+  Lint rule `exhaustive-deps` đối xử với custom hook của bạn y như một component: mọi giá trị
+  reactive dùng bên trong một effect đều phải xuất hiện trong mảng dependency của nó. Đừng tắt cảnh
+  báo — thiếu một dependency nghĩa là effect đọc một giá trị *cũ* (stale) từ lần render trước, lỗi
+  phổ biến nhất của custom hook.
+</Callout>
+
+## Khi nào KHÔNG nên tách hook
+
+Custom hook là một công cụ, không phải mục tiêu. Hãy tách khi:
+
+- **cùng một logic stateful bị lặp lại** giữa các component, hoặc
+- một component đã trở nên khó theo dõi và một hook có tên sẽ làm rõ ý định.
+
+Khoan tách khi:
+
+- **Chỉ có một nơi gọi và không có lặp lại.** Một hook tách non chỉ một nơi dùng thì chỉ là sự gián tiếp thừa — cứ để logic inline cho tới khi xuất hiện nơi dùng thứ hai.
+- **"Hook" sẽ không gọi hook nào cả.** Đó là một hàm thường; đừng khoác cho nó tiền tố `use`.
+- **Bạn bị cám dỗ viết các wrapper vòng đời** như `useMount` hay `useUpdateEffect`. Tài liệu React khuyên rõ ràng là tránh những thứ này — chúng che mờ mô hình effect dựa trên dependency và thường chống lại framework. Hãy giữ custom hook **chuyên về một mục đích cụ thể** (`useChatRoom`, `useOnlineStatus`), không phải đường ngọt vòng đời chung chung.
+
+<Callout variant="warn" title="Đừng dựng useMount và đồng bọn">
+  Các hook vòng đời chung chung (`useMount`, `useUpdate`) giấu đi *vì sao* một effect chạy và nó phụ
+  thuộc giá trị nào. Hãy ưu tiên một hook đặt tên theo việc nó *làm* cho app của bạn, để dependency
+  của nó luôn hiện rõ và trung thực.
+</Callout>
+
+## Tóm tắt
+
+- Custom hook là một hàm `use*` gọi các hook khác để chia sẻ **logic stateful**.
+- Đặt tên bắt đầu bằng `use` + chữ in hoa, gọi hook ở cấp cao nhất, và giữ thân hàm thuần.
+- Mỗi lần gọi nhận **state riêng biệt của nó** — hook chia sẻ công thức, không chia sẻ dữ liệu. Dùng context để chia sẻ state thật.
+- Giá trị reactive truyền vào luôn cập nhật vì hook chạy lại ở mỗi lần render.
+- Dựng hook lớn bằng cách kết hợp hook nhỏ (`useSearch` từ `useFetch` + `useDebouncedValue`).
+- Tách khi có lặp lại hoặc để rõ ràng; tránh tách non và các wrapper vòng đời chung chung như `useMount`.
+
+> Custom hook không thêm tính năng cho React. Chúng là một quy ước để _tổ chức_ những tính năng React đã có — để logic stateful của bạn có tên, có chỗ ở, và có bài test.

@@ -1,0 +1,248 @@
+---
+topic: components-props
+lang: en
+title: "Components & props"
+summary: "How to split UI into function components, pass read-only props, set defaults, compose with children, spread props, recognize prop drilling, and type props with TypeScript."
+category: Fundamentals
+level: beginner
+order: 20
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## A component is just a function
+
+A React component is a JavaScript function that takes one argument — `props` — and returns elements. The name must start with a capital letter so React calls it instead of treating it as an HTML tag.
+
+```jsx
+function Avatar(props) {
+  return <img src={props.url} alt={props.name} />
+}
+
+// Usage
+;<Avatar url="/me.png" name="Thang" />
+```
+
+In practice you almost always **destructure** props in the parameter list. It reads cleaner and documents exactly what the component expects:
+
+```jsx
+function Avatar({ url, name }) {
+  return <img src={url} alt={name} />
+}
+```
+
+That's the whole model: data flows _in_ through props, JSX flows _out_. A component you can describe in one sentence ("shows one avatar") is a component you can reuse and test.
+
+<Callout variant="note" title="props is always one object">
+  React passes a single object to your component — even with ten attributes, you receive one
+  `props`. Destructuring in the signature just unpacks that object; it doesn't change how the data
+  arrives.
+</Callout>
+
+## Props can be any JavaScript value
+
+Props aren't limited to strings. You pass numbers, booleans, objects, arrays, and functions — and the syntax tells the two apart. Strings use quotes; everything else goes in curly braces:
+
+```jsx
+<Avatar
+  name="Katsuko" // string
+  size={100} // number
+  isActive // boolean shorthand for isActive={true}
+  person={{ id: 1, role: "admin" }} // object (note the double braces)
+  onSelect={handleSelect} // function reference, not a call
+/>
+```
+
+A bare attribute like `isActive` is shorthand for `isActive={true}`. And `onSelect={handleSelect}` passes the function itself — writing `onSelect={handleSelect()}` would _call_ it during render and pass the return value instead.
+
+## Props are read-only
+
+Props are the inputs a parent passes down. The golden rule: **a component must never mutate its own props.** Treat the props object as frozen.
+
+```jsx
+function Total({ price, qty }) {
+  // ❌ never do this
+  // price = price * qty
+
+  // ✅ derive new values instead
+  const total = price * qty
+  return <span>{total}</span>
+}
+```
+
+Why this matters: React's mental model is `UI = f(props, state)`. If a function quietly rewrote its inputs, the same props could produce different output, and re-renders would become unpredictable. Pure inputs in, predictable UI out. When you need data that _changes over time_, that's `state`, not props — a separate topic.
+
+<Callout variant="warn" title="Props flow down, not up">
+  A child can't change its parent's data directly. To send information upward, the parent passes a
+  callback prop (e.g. `onChange`) that the child calls. Data down, events up.
+</Callout>
+
+<Callout variant="note" title="Props are a snapshot in time">
+  A component receives a fresh set of props on every render. The props from one render never change
+  — to show different data, the parent renders again with new props and React calls your function
+  anew.
+</Callout>
+
+## Default values
+
+When a prop might be omitted, give it a default directly in the destructuring. This is plain JavaScript and replaces the old `defaultProps` (which is deprecated for function components in React 19).
+
+```jsx
+function Button({ variant = "primary", disabled = false, children }) {
+  return (
+    <button className={`btn btn-${variant}`} disabled={disabled}>
+      {children}
+    </button>
+  )
+}
+
+// <Button>Save</Button> → variant is "primary"
+```
+
+Defaults only kick in when the prop is `undefined`. Passing `null` keeps `null`, and passing `size={0}` keeps `0`, so be deliberate about which "empty" value you send.
+
+## The children prop
+
+Anything you nest between a component's tags arrives as a special prop named `children`. This is what makes components composable like HTML. Think of a component with `children` as having a "hole" the parent fills with arbitrary JSX.
+
+```jsx
+function Card({ children }) {
+  return <div className="card">{children}</div>
+}
+
+// Used as a wrapper around arbitrary content
+;<Card>
+  <h2>Title</h2>
+  <p>Body text</p>
+</Card>
+```
+
+`children` pairs naturally with other props — a wrapper can take both its own configuration and the content to wrap:
+
+```jsx
+function Card({ title, children }) {
+  return (
+    <div className="card">
+      <h1>{title}</h1>
+      {children}
+    </div>
+  )
+}
+
+;<Card title="About">
+  <p>Aklilu Lemma discovered a natural treatment to schistosomiasis.</p>
+</Card>
+```
+
+`children` can be a string, one element, an array of elements, or even a function — React just renders whatever you give it. This unlocks **composition over configuration**: instead of adding endless boolean props like `hasHeader`, `hasFooter`, `showIcon`, you let callers pass the exact markup they want.
+
+```jsx
+// ⚠️ configuration: every variation needs a new prop
+<Dialog title="Hi" hasCloseButton showFooter footerText="OK" />
+
+// ✅ composition: the caller supplies the pieces
+<Dialog>
+  <Dialog.Header>Hi</Dialog.Header>
+  <Dialog.Body>...</Dialog.Body>
+</Dialog>
+```
+
+Composition keeps components small and flexible; the parent decides the content, the component decides the structure. You'll reach for `children` constantly with visual wrappers: panels, grids, layouts, modals.
+
+## Spreading props
+
+When a component just forwards most of its props to a single element, the spread operator saves you from listing each one. It's common in thin wrappers around native elements:
+
+```jsx
+function TextInput({ label, ...rest }) {
+  return (
+    <label>
+      {label}
+      <input {...rest} /> {/* placeholder, value, onChange… all forwarded */}
+    </label>
+  )
+}
+
+// <TextInput label="Email" type="email" value={email} onChange={onChange} />
+```
+
+`...rest` collects every prop you _didn't_ destructure by name and `{...rest}` forwards them onto the `<input>`. Order matters: a prop written after the spread overrides one from the spread, so `<input {...rest} type="text" />` always wins with `type="text"`.
+
+<Callout variant="warn" title="Spread with restraint">
+  Forwarding `{...props}` blindly hides which attributes a component actually accepts and can leak
+  unexpected props onto the DOM. Reach for it on genuine wrappers, not as a shortcut to avoid
+  naming.
+</Callout>
+
+## Prop drilling — name the pain
+
+When a deeply nested component needs data, you often pass it through every layer in between, even components that don't use it. That's **prop drilling**:
+
+```jsx
+<App user={user}>
+  <Layout user={user}>
+    <Sidebar user={user}>
+      <Profile user={user} /> {/* finally used here */}
+```
+
+It works, but it's noisy and couples the middle components to props they only forward. A little drilling is fine; pervasive drilling is the signal to reach for **Context** (covered in its own topic), which lets a deep child read shared data without every parent relaying it.
+
+<Callout variant="tip" title="Don't fix it too early">
+  Passing a prop through one or two levels is perfectly normal. Reach for Context only when the same
+  value is threaded through many layers or needed by many branches.
+</Callout>
+
+## Typing props with TypeScript
+
+In TypeScript, describe the props shape with a `type` (or `interface`) and annotate the parameter. You get autocomplete and a compile-time error if a caller forgets a required prop.
+
+```tsx
+type ButtonProps = {
+  variant?: "primary" | "secondary" // optional via ?
+  disabled?: boolean
+  onClick: () => void // required
+  children: React.ReactNode // anything renderable
+}
+
+function Button({ variant = "primary", disabled, onClick, children }: ButtonProps) {
+  return (
+    <button className={`btn btn-${variant}`} disabled={disabled} onClick={onClick}>
+      {children}
+    </button>
+  )
+}
+```
+
+A few practical types worth memorizing: `React.ReactNode` for anything you can render (the usual type for `children`), `React.ChangeEvent<HTMLInputElement>` for input handlers, and `() => void` for simple callbacks. Prefer a named `type` over inline annotations — it's reusable and reads better.
+
+To inherit all the native attributes of an element (so callers can pass `type`, `aria-*`, etc.) extend its props type. This pairs perfectly with the spread pattern above:
+
+```tsx
+type InputProps = React.ComponentProps<"input"> & { label: string }
+
+function TextInput({ label, ...rest }: InputProps) {
+  return (
+    <label>
+      {label}
+      <input {...rest} />
+    </label>
+  )
+}
+```
+
+## The takeaway
+
+> Components are functions of their props. Keep props read-only, default with destructuring, compose with `children`, spread to forward, and type the shape.
+
+Master this and the rest of React — state, context, hooks — slots on top of a clean, predictable component layer.
+
+## Recap
+
+- A component is a capitalized function that takes one `props` object and returns JSX.
+- Props can be any value — strings in quotes, everything else in `{ }` — and they are **read-only**; send events back up via callback props.
+- Set defaults in the destructuring (`{ variant = "primary" }`); defaults apply only to `undefined`.
+- `children` is the JSX nested between tags — favour composition over a pile of boolean config props.
+- `{...rest}` forwards leftover props onto an element; use it on real wrappers, mindful of order and DOM leaks.
+- Threading one prop through many idle layers is **prop drilling** — the cue to consider **Context**.
+- In TypeScript, type props with a named `type`; use `React.ReactNode` for `children` and `React.ComponentProps<"tag">` to inherit native attributes.

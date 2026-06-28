@@ -1,0 +1,252 @@
+---
+topic: forms
+lang: vi
+title: "Form & controlled input"
+summary: "Controlled và uncontrolled input, bind mọi loại control, một handler cho nhiều field, ref với defaultValue, khi nào chọn cách nào, và form action của React 19."
+category: Fundamentals
+level: beginner
+order: 50
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Controlled và uncontrolled
+
+Một input luôn giữ giá trị ở đâu đó. Câu hỏi là **ai sở hữu nó**: React state, hay chính DOM node.
+
+- **Controlled** — React state là nguồn chân lý. Bạn gán `value` từ state và cập nhật state đó trong `onChange`. DOM chỉ hiển thị đúng những gì state nói.
+- **Uncontrolled** — DOM node tự giữ giá trị của nó. React không theo dõi từng phím gõ; bạn đọc giá trị ra khỏi node khi cần (thường là lúc submit) thông qua một ref.
+
+```jsx
+// Controlled: state điều khiển input
+function NameField() {
+  const [name, setName] = useState("")
+  return <input value={name} onChange={(e) => setName(e.target.value)} />
+}
+```
+
+Vòng lặp là: người dùng gõ → `onChange` chạy → bạn gọi `setName` → component re-render → `value` phản ánh state mới. Vì state là nguồn chân lý duy nhất, bạn có thể validate, format, hay disable nút submit từ chính giá trị mà input đang hiển thị.
+
+<Callout variant="warn" title="value mà không có onChange = chỉ đọc">
+  Truyền `value` nhưng không có `onChange` sẽ ép input luôn hiển thị giá trị đó, nên người dùng
+  không gõ được, và React sẽ cảnh báo. Hoặc thêm `onChange` để giữ controlled, hoặc dùng
+  `defaultValue` để làm nó uncontrolled. Một cái bẫy liên quan: `value={user.name}` mà `name` có thể
+  `undefined` sẽ làm input nhảy qua lại giữa uncontrolled và controlled — hãy khởi tạo state là
+  `""`, đừng bao giờ `undefined`.
+</Callout>
+
+## Một handler cho nhiều field
+
+Viết riêng một `useState` và một handler cho mỗi field rất mau chán. Hãy gom các field liên quan vào một object state và dựa vào thuộc tính `name` của input để một handler duy nhất lo hết:
+
+```jsx
+function SignupForm() {
+  const [form, setForm] = useState({ email: "", password: "" })
+
+  function handleChange(e) {
+    const { name, value } = e.target
+    setForm((prev) => ({ ...prev, [name]: value }))
+  }
+
+  return (
+    <form>
+      <input name="email" value={form.email} onChange={handleChange} />
+      <input name="password" type="password" value={form.password} onChange={handleChange} />
+    </form>
+  )
+}
+```
+
+Hai chi tiết quan trọng: **key động** `[name]` cho phép một handler ghi vào bất kỳ field nào, và **dạng updater** `(prev) => ...` kèm spread giữ nguyên các field khác thay vì ghi đè chúng.
+
+<Callout variant="warn" title="Vì sao cần dạng updater ở đây">
+  Nếu hai field đổi liên tiếp nhanh (hoặc bạn gộp các thay đổi), `setForm({ ...form, [name]: value
+  })` đọc một snapshot `form` có thể đã cũ và làm mất chỉnh sửa của field kia. `setForm(prev => ({
+  ...prev, [name]: value }))` luôn xây trên state mới nhất.
+</Callout>
+
+## Bind mọi loại control
+
+Mỗi loại control bộc lộ giá trị theo cách khác nhau, nên cách bind controlled cũng khác:
+
+```jsx
+function Preferences() {
+  const [subscribed, setSubscribed] = useState(false)
+  const [size, setSize] = useState("m")
+  const [plan, setPlan] = useState("free")
+  const [bio, setBio] = useState("")
+
+  return (
+    <>
+      {/* checkbox dùng `checked`, không phải `value`, và báo qua e.target.checked */}
+      <input
+        type="checkbox"
+        checked={subscribed}
+        onChange={(e) => setSubscribed(e.target.checked)}
+      />
+
+      {/* nhóm radio: cùng `name`, controlled bằng cách so `value` với state */}
+      <label>
+        <input
+          type="radio"
+          name="size"
+          value="s"
+          checked={size === "s"}
+          onChange={(e) => setSize(e.target.value)}
+        />
+        Small
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="size"
+          value="m"
+          checked={size === "m"}
+          onChange={(e) => setSize(e.target.value)}
+        />
+        Medium
+      </label>
+
+      {/* select được controlled qua `value` trên <select>, không phải `selected` trên <option> */}
+      <select value={plan} onChange={(e) => setPlan(e.target.value)}>
+        <option value="free">Free</option>
+        <option value="pro">Pro</option>
+      </select>
+
+      {/* textarea dùng `value` trong React, không phải text giữa hai thẻ */}
+      <textarea value={bio} onChange={(e) => setBio(e.target.value)} />
+    </>
+  )
+}
+```
+
+Khác biệt chính so với HTML:
+
+- **checkbox** được điều khiển bằng `checked` (một boolean) và báo qua `e.target.checked`;
+- một **nhóm radio** dùng chung một `name`; mỗi input `checked` khi `value` của nó bằng state;
+- **`<select>`** được controlled ngay trên chính phần tử `<select>` thay vì gắn `selected` lên option (multi-select dùng `value` là một mảng);
+- **`<textarea>`** nhận `value` như một prop thay vì đặt text giữa hai thẻ.
+
+## Uncontrolled input với ref
+
+Đôi khi bạn không cần phản ứng với từng phím gõ — bạn chỉ cần giá trị khi người dùng submit. Uncontrolled input để DOM giữ giá trị và bạn lấy nó bằng ref. Đặt giá trị ban đầu bằng `defaultValue` (không phải `value`), và `defaultChecked` cho checkbox/radio:
+
+```jsx
+function SearchForm() {
+  const inputRef = useRef(null)
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    console.log(inputRef.current.value)
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input ref={inputRef} defaultValue="" />
+      <button>Search</button>
+    </form>
+  )
+}
+```
+
+Cách này ít code hơn và tránh re-render mỗi lần gõ, nhưng bạn mất khả năng truy cập tức thì vào giá trị để validate trực tiếp, đổi UI theo điều kiện, hay format trong lúc người dùng gõ.
+
+<Callout variant="note" title="defaultValue, defaultChecked">
+  Field uncontrolled dùng `defaultValue` / `defaultChecked` cho giá trị khởi đầu. Sau đó DOM sở hữu
+  nó — đổi `defaultValue` về sau sẽ không cập nhật một input đã render.
+</Callout>
+
+Bạn cũng có thể bỏ qua ref hoàn toàn và đọc mọi thứ từ `FormData` lúc submit — nó hoạt động cho cả field controlled lẫn uncontrolled, miễn là mỗi input có một `name`:
+
+```jsx
+function ContactForm() {
+  function handleSubmit(e) {
+    e.preventDefault()
+    const data = new FormData(e.currentTarget)
+    const values = Object.fromEntries(data) // { email: "...", message: "..." }
+    console.log(values)
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input name="email" />
+      <textarea name="message" />
+      <button>Send</button>
+    </form>
+  )
+}
+```
+
+## Khi nào chọn cách nào
+
+Chọn **controlled** khi bạn cần giá trị ngay lúc gõ: validate trực tiếp, bật/tắt nút submit, format (số điện thoại, tiền tệ), đồng bộ hai input, hay tìm kiếm tức thì. Đây là lựa chọn mặc định cho hầu hết form React.
+
+Chọn **uncontrolled** cho form đơn giản chỉ cần giá trị lúc submit, khi tích hợp widget không phải React, hoặc cho input file (`<input type="file">` luôn là uncontrolled — không thể set value bằng code vì lý do bảo mật; hãy đọc `e.target.files` trong `onChange`).
+
+| Nhu cầu                       | Controlled | Uncontrolled |
+| ----------------------------- | :--------: | :----------: |
+| Validate / format khi đang gõ |     ✅     |      —       |
+| Bật submit theo điều kiện     |     ✅     |      —       |
+| Ít re-render nhất             |     —      |      ✅      |
+| Đọc một lần lúc submit        |    được    |      ✅      |
+| Input file                    |     —      |   bắt buộc   |
+
+## Thư viện form và form action của React 19
+
+Với form lớn nhiều field, validate liên field, và trạng thái lỗi phức tạp, việc tự đấu dây từng input trở nên nặng nề. Các thư viện như **React Hook Form** (chủ yếu uncontrolled, dựa trên ref, rất ít re-render) hay **Formik** lo phần đấu dây, validate, và lỗi giúp bạn.
+
+React 19 còn thêm **form action**: truyền một hàm vào `<form action={fn}>` và React gọi nó với `FormData` khi submit, reset form khi thành công, và tự quản lý trạng thái pending. Ghép nó với `useActionState` để theo dõi kết quả/lỗi và cờ pending, và `useFormStatus` để đọc trạng thái submit từ một nút lồng bên trong mà không cần prop-drilling:
+
+```jsx
+import { useActionState } from "react"
+import { useFormStatus } from "react-dom"
+
+function SubmitButton() {
+  const { pending } = useFormStatus() // đọc state của <form> bao quanh
+  return <button disabled={pending}>{pending ? "Saving…" : "Subscribe"}</button>
+}
+
+function NewsletterForm() {
+  const [state, formAction] = useActionState(
+    async (prev, formData) => {
+      const email = formData.get("email")
+      try {
+        await saveEmail(email)
+        return { ok: true, message: "Subscribed!" }
+      } catch {
+        return { ok: false, message: "Something went wrong" }
+      }
+    },
+    { ok: false, message: "" },
+  )
+
+  return (
+    <form action={formAction}>
+      <input name="email" />
+      <SubmitButton />
+      {state.message && <p>{state.message}</p>}
+    </form>
+  )
+}
+```
+
+<Callout variant="note" title="Action là mặc định hiện đại">
+  `action`, `useActionState`, và `useFormStatus` cho bạn UI pending và xử lý lỗi với ít đấu dây hơn
+  nhiều so với `onSubmit` + `useState` thủ công. Chúng cũng degrade mượt và tích hợp với Server
+  Functions. Controlled input thường vẫn chạy ở mọi nơi — action chỉ bớt boilerplate.
+</Callout>
+
+## Mô hình tư duy cần nhớ
+
+> Controlled = React sở hữu giá trị và re-render mỗi lần đổi. Uncontrolled = DOM sở hữu giá trị và
+> bạn đọc khi cần.
+
+Tóm tắt nhanh:
+
+- Controlled input cần cả `value` và `onChange`; khởi tạo state là `""`, không phải `undefined`.
+- Một handler lo nhiều field qua `name` + key động `[name]` và dạng updater.
+- Checkbox → `checked`; radio → `checked={value === state}`; select → `value` trên `<select>`; textarea → prop `value`.
+- Uncontrolled input dùng `defaultValue`/`defaultChecked` và một ref (hoặc `FormData`) đọc lúc submit.
+- Input file luôn là uncontrolled.
+- Bắt đầu với controlled khi bạn cần giá trị ngay khi nó thay đổi; chuyển sang uncontrolled, một thư viện, hay form action của React 19 khi việc re-render mỗi phím gõ chẳng đem lại lợi ích gì.

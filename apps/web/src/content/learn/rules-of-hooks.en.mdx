@@ -1,0 +1,161 @@
+---
+topic: rules-of-hooks
+lang: en
+title: "The Rules of Hooks"
+summary: "Two small rules that keep hooks working — the call-order mechanism that explains why breaking them corrupts state, and how the linter enforces it for you."
+category: Hooks
+level: intermediate
+order: 110
+readingTime: 9
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Two rules, no exceptions
+
+Every hook — `useState`, `useEffect`, `useRef`, and any custom hook — must obey two rules:
+
+1. **Only call hooks at the top level.** Never inside conditions, loops, nested functions, or after an early `return`.
+2. **Only call hooks from React functions.** That means React function components or other custom hooks — not regular JavaScript functions, event handlers, or class components.
+
+```jsx
+function Profile({ userId }) {
+  const [user, setUser] = useState(null) // ✅ top level
+  useEffect(() => {
+    fetchUser(userId).then(setUser)
+  }, [userId]) // ✅ top level
+  // ...
+}
+```
+
+These look arbitrary until you see how hooks are stored. Then they become obvious.
+
+## Why: hooks are tracked by call order
+
+React does **not** know the _name_ of your hook. It has no idea you called something `user` or `count`. Internally, each component instance holds an ordered list of hook "slots," and React walks that list **in the exact order the hooks are called**, one index at a time.
+
+```jsx
+function Form() {
+  const [name, setName] = useState("") // slot 0
+  const [age, setAge] = useState(0) //    slot 1
+  useEffect(() => {}, []) //               slot 2
+}
+```
+
+On the first render React creates slots 0, 1, 2. On every later render it expects the **same hooks in the same order**, so slot 0 still maps to `name`, slot 1 to `age`, and so on. The order _is_ the identity. There's no key, no label — only position.
+
+A simplified picture of what React keeps internally:
+
+```js
+// conceptually, per component instance:
+const slots = [
+  { type: "state", value: "" }, // 0 → name
+  { type: "state", value: 0 }, //  1 → age
+  { type: "effect", deps: [] }, // 2 → the effect
+]
+let cursor = 0 // reset to 0 at the start of every render, then ++ per hook call
+```
+
+<Callout variant="note" title="Call order, not source line">
+  React relies on the runtime order in which hooks execute, not where they sit in the file. That's
+  why anything that can change the count or sequence between renders — a condition, a loop, an early
+  return — is forbidden.
+</Callout>
+
+## What breaks when you violate it
+
+Put a hook behind a condition and the slot list shifts as soon as the condition flips:
+
+```jsx
+function Profile({ isAdmin }) {
+  if (isAdmin) {
+    const [perms, setPerms] = useState([]) // 🐛 conditional hook
+  }
+  const [name, setName] = useState("") // slot moves between renders
+}
+```
+
+When `isAdmin` is `true`, `useState([])` takes slot 0 and `name` takes slot 1. When it flips to `false`, the cursor only reaches one hook, so `name` suddenly claims slot 0 — and reads back the _array_ that used to belong to `perms`. State gets crossed, effects fire with the wrong dependencies, and you'll often see the runtime error:
+
+> Rendered fewer hooks than expected. This may be caused by an accidental early return statement.
+
+That message is React noticing that this render called fewer hooks than the previous one: the slot count no longer matches, so it can't safely line anything up.
+
+The same applies to loops, early `return`s before a hook, and hooks inside callbacks or `try/catch`. If the number or order of hook calls can differ between two renders, the mapping corrupts.
+
+```jsx
+// 🐛 all of these are illegal
+if (cond) useEffect(...)              // conditional
+for (const x of list) useState(x)     // loop — count depends on list length
+function handleClick() { useState(0) } // not a React function
+if (loading) return <Spinner />        // early return BEFORE the hooks below it
+```
+
+That last one is the most common real-world cause of "rendered fewer hooks": an early `return` placed _above_ some of the component's hooks. Move all hooks above every early return.
+
+## How to do it correctly
+
+Keep the hook unconditional and put the **condition inside** it:
+
+```jsx
+function Profile({ isAdmin }) {
+  const [name, setName] = useState("")
+  const [perms, setPerms] = useState([]) // always called
+
+  useEffect(() => {
+    if (!isAdmin) return // condition lives inside the effect
+    loadPermissions().then(setPerms)
+  }, [isAdmin])
+
+  if (!name) return <Spinner /> // ✅ early return AFTER all hooks
+  // ...
+}
+```
+
+If you need a different _number_ of hooks for different cases, split it into separate components and let the parent choose which to render — each component then has its own stable hook list. To render a list, extract a child component that calls the hooks, rather than calling hooks in a loop:
+
+```jsx
+// ❌ hook in a loop
+function List({ ids }) {
+  return ids.map((id) => {
+    const data = useFetch(id) // 🐛 count depends on ids.length
+    return <li>{data.name}</li>
+  })
+}
+
+// ✅ each Row owns its own stable hook list
+function Row({ id }) {
+  const data = useFetch(id)
+  return <li>{data.name}</li>
+}
+function List({ ids }) {
+  return ids.map((id) => <Row key={id} id={id} />)
+}
+```
+
+<Callout variant="warn" title="Custom hooks inherit the rules">
+  The rules apply to *every* hook, including ones you write. A custom hook that calls `useState`
+  inside an `if` is just as broken as a component that does — the slot list it contributes still has
+  to be the same shape on every render. Calling a custom hook conditionally is equally illegal.
+</Callout>
+
+## Let the linter enforce it
+
+You don't have to track this by hand. `eslint-plugin-react-hooks` ships two rules:
+
+- **`rules-of-hooks`** — flags any hook called conditionally, in a loop, or from a non-React function.
+- **`exhaustive-deps`** — checks your effect / `useMemo` / `useCallback` dependency arrays.
+
+<Callout variant="tip" title="Trust the lint error">
+  The convention that hooks start with `use` is what lets the linter recognize them. Name your
+  custom hooks `useSomething` and keep the plugin on — it catches these mistakes before they ever
+  reach the browser. If the linter flags a hook call, restructure the code; don't disable the rule.
+</Callout>
+
+## Recap
+
+- Two rules: call hooks only at the **top level**, and only from **React functions** (components or custom hooks).
+- React identifies hooks by **call order / slot index**, not by name — order is the only identity they have.
+- Conditions, loops, and early returns above a hook change that order and corrupt the slot mapping, often surfacing as _"Rendered fewer hooks than expected."_
+- Fix it by moving the condition _inside_ the hook, putting early returns _after_ all hooks, or extracting a child component.
+- Keep `eslint-plugin-react-hooks` on and name custom hooks `useSomething` so it can help.

@@ -1,0 +1,220 @@
+---
+topic: concurrent-suspense
+lang: vi
+title: "Suspense, lazy & concurrent UI"
+summary: "Code-splitting với React.lazy, Suspense cho dữ liệu, và các hook concurrent — useTransition, startTransition và useDeferredValue — giúp UI luôn mượt khi tải nặng."
+category: Advanced
+level: advanced
+order: 140
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Suspense: khai báo một loading boundary
+
+`Suspense` cho phép một component "chờ" một thứ gì đó trước khi render, và hiển thị `fallback` trong lúc chờ. Thay vì rải các kiểm tra `isLoading` khắp cây, bạn bọc một phần UI trong một boundary và khai báo cái gì sẽ hiện khi nó chưa sẵn sàng:
+
+```jsx
+<Suspense fallback={<Spinner />}>
+  <Profile />
+</Suspense>
+```
+
+Trong khi bất cứ thứ gì bên trong `<Profile>` đang _suspend_, React render fallback. Khi công việc xong, React tráo nội dung thật vào. Boundary "bắt" trạng thái suspend giống như error boundary bắt lỗi — ancestor `Suspense` gần nhất xử lý nó, nên bạn kiểm soát loading UI ở mức độ chi tiết tùy ý. Bạn có thể lồng các boundary để lộ nội dung dần dần: một boundary ngoài cho khung trang, các boundary trong cho từng panel được stream về.
+
+<Callout variant="note" title="Chỉ nguồn hỗ trợ Suspense mới kích hoạt nó">
+  Một component chỉ suspend khi nó đọc từ một nguồn tích hợp Suspense — một lazy import, một data
+  loader của framework, hay một promise đọc qua hook <code>use</code>. Một cặp
+  <code>useEffect</code> + <code>fetch</code> thông thường <em>không</em> kích hoạt boundary; với
+  mẫu đó bạn vẫn tự render loading state của mình.
+</Callout>
+
+## React.lazy + Suspense để code-splitting
+
+Cách dùng phổ biến nhất của Suspense là tách JavaScript ra khỏi bundle khởi tạo. `React.lazy` nhận một hàm trả về `import()` động và trả lại cho bạn một component được tải ở lần render đầu tiên:
+
+```jsx
+import { lazy, Suspense } from "react"
+
+const Settings = lazy(() => import("./Settings.tsx"))
+
+function App() {
+  return (
+    <Suspense fallback={<PagePlaceholder />}>
+      <Settings />
+    </Suspense>
+  )
+}
+```
+
+Chunk `Settings` không được tải xuống cho tới khi `<Settings />` thực sự render. Cho đến khi module về tới, component suspend và `Suspense` gần nhất hiện fallback. Đây là cách bạn giữ lần tải đầu nhỏ gọn và trì hoãn các route, modal hay widget nặng ít dùng (một trình soạn thảo rich text, một thư viện biểu đồ) ra khỏi đường tới hạn.
+
+```jsx
+// Một modal mà code chỉ tải xuống khi người dùng mở nó:
+const HelpDialog = lazy(() => import("./HelpDialog.tsx"))
+
+function Toolbar() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button onClick={() => setOpen(true)}>Trợ giúp</button>
+      {open && (
+        <Suspense fallback={<Spinner />}>
+          <HelpDialog onClose={() => setOpen(false)} />
+        </Suspense>
+      )}
+    </>
+  )
+}
+```
+
+<Callout variant="tip" title="Đặt boundary nơi layout cần giữ nguyên">
+  Đặt fallback sao cho phần khung xung quanh (nav, sidebar) vẫn render trong khi chỉ vùng lazy hiện
+  placeholder. Một boundary khổng lồ ở gốc sẽ khiến cả trang nháy spinner mỗi lần điều hướng. Khai
+  báo các component <code>lazy</code> ở phạm vi module, không bao giờ bên trong một component khác —
+  khai báo trong lúc render sẽ tạo một type mới mỗi lần và remount mọi thứ.
+</Callout>
+
+## Suspense cho dữ liệu
+
+Suspense không chỉ dành cho code. Một component cũng có thể suspend trong khi **dữ liệu** đang tải — nếu nó đọc từ một nguồn biết cách "throw một promise" cho React. Bạn hiếm khi tự đấu nối thứ này; framework và thư viện làm sẵn cho bạn:
+
+- **React Server Components** (Next.js App Router và tương tự) `await` dữ liệu trên server và stream HTML, với `Suspense` đánh dấu các chunk được stream về.
+- **Hook `use`** (React 19) bóc một promise bên trong component; nếu promise đang pending, component suspend.
+- Các thư viện dữ liệu như React Query hay Relay cung cấp chế độ Suspense tích hợp với cùng boundary đó.
+
+```jsx
+// React 19: use() đọc một promise; component suspend cho tới khi nó resolve.
+import { use, Suspense } from "react"
+
+function Comments({ commentsPromise }) {
+  const comments = use(commentsPromise)
+  return comments.map((c) => <p key={c.id}>{c.text}</p>)
+}
+
+// Component cha render fallback trong khi promise đang pending:
+;<Suspense fallback={<p>Đang tải bình luận…</p>}>
+  <Comments commentsPromise={promise} />
+</Suspense>
+```
+
+<Callout variant="warn" title="Đừng tạo promise trong lúc render">
+  Suspense cho dữ liệu hoạt động khi promise được tạo <em>bên ngoài</em> lần render đang suspend
+  (truyền qua prop, được cache, hoặc do loader của framework tạo). Gọi <code>fetch()</code> trực
+  tiếp trong thân component sẽ tạo promise mới mỗi lần render — component suspend, render lại, tạo
+  promise khác, và lặp vô tận.
+</Callout>
+
+## Update khẩn cấp vs. update dạng transition
+
+Concurrent React chia các update state thành hai mức ưu tiên:
+
+- **Update khẩn cấp (urgent)** phải cảm thấy tức thì — gõ vào ô input, bật/tắt checkbox, kéo một slider. UI phải phản ánh chúng ngay ở khung hình kế tiếp.
+- **Update dạng transition** có thể chờ một chút — lọc bảng 10.000 dòng, chuyển tab render một view nặng, điều hướng sang một trang mới. Người dùng chấp nhận trễ nhẹ miễn là tương tác khẩn vẫn nhạy.
+
+Vấn đề của mô hình cũ: render một transition lớn sẽ chặn input khẩn, nên việc gõ phím như bị đơ. Concurrent rendering cho phép React làm transition theo từng phần gián đoạn được và **ngắt nó** mỗi khi có update khẩn — giữ input nhạy trong khi view nặng đuổi theo sau.
+
+## useTransition và startTransition
+
+`useTransition` cho bạn cách đánh dấu một update là không khẩn, cùng với cờ `isPending` cho trạng thái chuyển tiếp:
+
+```jsx
+const [isPending, startTransition] = useTransition()
+const [query, setQuery] = useState("")
+const [results, setResults] = useState([])
+
+function onChange(e) {
+  const next = e.target.value
+  setQuery(next) // khẩn: input cập nhật ngay lập tức
+
+  startTransition(() => {
+    setResults(search(next)) // không khẩn: có thể bị ngắt khi gõ tiếp
+  })
+}
+
+return (
+  <>
+    <input value={query} onChange={onChange} />
+    {isPending && <Spinner />}
+    <Results items={results} />
+  </>
+)
+```
+
+Lần gõ phím cập nhật `query` một cách khẩn, nên input không bao giờ lag. Phần `setResults` nặng chạy trong `startTransition`, nên React render nó ở mức ưu tiên thấp và bỏ phần việc cũ nếu bạn gõ tiếp. `isPending` là `true` trong khi transition đó đang render — hoàn hảo cho một chỉ báo loading nhẹ mà không chặn input.
+
+Một ứng dụng kinh điển là điều hướng: bọc việc chuyển trang trong một transition cho phép React giữ trang hiện tại tương tác được (thay vì nháy ngay một Suspense fallback) trong khi trang kế tiếp đang tải:
+
+```jsx
+function navigate(url) {
+  startTransition(() => setPage(url))
+}
+```
+
+`startTransition` cũng có sẵn dưới dạng import độc lập cho các trường hợp bạn không cần cờ `isPending` (hoặc đang ở ngoài component):
+
+```jsx
+import { startTransition } from "react"
+startTransition(() => setTab("details"))
+```
+
+<Callout variant="warn" title="Update phải đồng bộ bên trong startTransition">
+  React chỉ coi các update state diễn ra <em>đồng bộ</em> trong callback của
+  <code>startTransition</code> là một phần của transition. Một <code>setState</code> gọi sau đó bên
+  trong <code>setTimeout</code> hoặc sau một <code>await</code> sẽ mất mức ưu tiên transition. Với
+  việc bất đồng bộ, hãy await trước rồi mới bọc update state thu được.
+</Callout>
+
+<Callout variant="note" title="Transition không làm code chạy nhanh hơn">
+  Đánh dấu một update là transition không tăng tốc độ render — nó thay đổi <em>mức ưu tiên</em>.
+  Việc nặng vẫn diễn ra; React chỉ ngăn nó chặn các update khẩn và cho input mới chen lên trước.
+</Callout>
+
+## useDeferredValue
+
+`useDeferredValue` giải quyết cùng vấn đề nhưng từ phía _giá trị_. Bạn đưa cho nó một value, và nó trả về một phiên bản "trễ lại một nhịp" trong các update khẩn, rồi đuổi kịp trong một transition:
+
+```jsx
+function SearchResults({ query }) {
+  const deferredQuery = useDeferredValue(query)
+  // Các lần re-render do query mới thúc đẩy bị hạ ưu tiên;
+  // input vẫn tương tác được trong khi phần này tính lại.
+  const list = useMemo(() => search(deferredQuery), [deferredQuery])
+  return <Results items={list} />
+}
+```
+
+Ở lần render đầu, `useDeferredValue` trả về chính value bạn đưa. Trong các update khẩn, nó trả về value _trước đó_ và lên lịch một lần re-render nền với value mới — lần re-render mà React có thể ngắt nếu có update khẩn khác tới.
+
+Trong lúc trễ, `deferredQuery` giữ giá trị trước đó, nên React hiển thị nội dung cũ-nhưng-đầy-đủ thay vì một fallback trống. Bạn thậm chí có thể làm mờ nó trong khi nó đuổi kịp:
+
+```jsx
+const isStale = query !== deferredQuery
+return <div style={{ opacity: isStale ? 0.5 : 1 }}>{/* kết quả */}</div>
+```
+
+## Chọn giữa hai cái
+
+- Chọn **`useTransition`** khi **bạn sở hữu update state** và muốn có cờ `isPending` — tìm-kiếm-khi-gõ nơi bạn kiểm soát `setResults`, điều hướng tab/trang, áp dụng một bộ lọc.
+- Chọn **`useDeferredValue`** khi update chậm bị thúc đẩy bởi một **value truyền xuống qua prop** mà bạn không thể tự bọc `setState` (thường vì state nằm ở component cha hoặc trong một thư viện). Bạn defer value tại điểm tiêu thụ.
+
+Chúng bổ trợ nhau, không cạnh tranh: cả hai đều dựa trên cùng cơ chế render gián đoạn được, chỉ khác là từ phía update hay từ phía value.
+
+## Tóm lại
+
+- `Suspense` khai báo một `fallback` cho một vùng có children đang suspend; boundary gần nhất xử lý nó, và bạn có thể lồng boundary để tải dần dần.
+- `React.lazy` code-split một component sau một `import()` động; ghép với `Suspense` để trì hoãn code ít dùng hoặc nặng ra khỏi bundle khởi tạo.
+- Suspense cho dữ liệu hoạt động khi component đọc một nguồn tích hợp Suspense (RSC, hook `use`, một thư viện dữ liệu) — tạo promise bên ngoài render, không bao giờ bên trong.
+- Concurrent React tách update khẩn khỏi transition để việc nặng không bao giờ chặn input.
+- `useTransition`/`startTransition` đánh dấu một update không khẩn (kèm cờ `isPending` tùy chọn) khi bạn sở hữu `setState`; `useDeferredValue` defer một value bạn nhận qua prop. Cả hai đều không làm code nhanh hơn — chúng thay đổi mức ưu tiên.
+
+## Tra cứu nhanh
+
+| Công cụ            | Làm gì                                               | Dùng khi                                                |
+| ------------------ | ---------------------------------------------------- | ------------------------------------------------------- |
+| `React.lazy`       | Code-split một component sau một import động         | Một route/modal/widget không nên nằm trong bundle chính |
+| `Suspense`         | Hiện fallback trong khi children suspend             | Code lazy hoặc dữ liệu hỗ trợ Suspense đang tải         |
+| `useTransition`    | Đánh dấu update không khẩn, cho cờ `isPending`       | Bạn sở hữu một update state render tốn kém              |
+| `startTransition`  | Như trên, không có cờ pending / dùng ngoài component | Update ưu tiên thấp nhanh gọn, không cần UI pending     |
+| `useDeferredValue` | Trả về bản trễ của một value                         | Update chậm đến qua một prop bạn không kiểm soát        |

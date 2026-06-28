@@ -1,0 +1,187 @@
+---
+topic: reconciliation
+lang: en
+title: "Reconciliation, Virtual DOM & Fiber"
+summary: "How React decides what changed: the element tree, the diffing heuristics, the role of keys in preserving and resetting state, and the Fiber architecture that makes concurrent rendering possible."
+category: Advanced
+level: advanced
+order: 130
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## What reconciliation actually is
+
+When state changes, your component returns a **new tree of React elements** — plain JavaScript objects describing the UI. React already holds the _previous_ tree from the last render. Reconciliation is the process of comparing the two trees and figuring out the **minimum set of DOM mutations** needed to turn the old UI into the new one.
+
+The in-memory tree of elements is often called the **Virtual DOM**. It is not an API you call — it is just the lightweight object representation React diffs against. Real DOM nodes are expensive to create and mutate; plain JS objects are cheap. React does its bookkeeping on the cheap objects and touches the real DOM as little as possible.
+
+```js
+// Two renders produce two element trees:
+prevTree = { type: "ul", children: [<li>A</li>, <li>B</li>] }
+nextTree = { type: "ul", children: [<li>A</li>, <li>B</li>, <li>C</li>] }
+// Reconciliation concludes: keep A and B, insert one <li>C</li>.
+```
+
+A React element is just a description — `{ type, props, key }`. It is not a DOM node and not a component instance. Returning a new element tree is cheap; the cost is in deciding what to _do_ with it, which is what reconciliation optimizes.
+
+<Callout variant="note" title="Diffing the whole tree is too slow">
+  A general tree-diff algorithm is O(n³). React gets it down to roughly O(n) by leaning on a couple
+  of practical heuristics instead of trying to find the theoretically optimal set of edits. These
+  heuristics are assumptions about how UIs actually change — and the way you write components is
+  what makes them hold.
+</Callout>
+
+## The diffing heuristics
+
+React's diff walks both trees from the root, comparing nodes at the same position. Three rules drive almost everything.
+
+**1. Different element type → replace the whole subtree.** If a node changes type (`<div>` becomes `<span>`, or `<Profile>` becomes `<Settings>`), React does not try to reuse anything. It unmounts the old subtree — destroying its DOM nodes and all component state inside it — and mounts the new subtree from scratch, running mount effects fresh.
+
+```jsx
+// Toggling this swaps <a> for <button>: the old node and any state under it are thrown away.
+{
+  isLink ? <a href="/x">Go</a> : <button onClick={go}>Go</button>
+}
+```
+
+**2. Same type → keep the node, update its props.** If the type matches, React keeps the existing DOM node and component instance, then patches only the attributes/props that actually changed. Component state and refs are preserved across the update.
+
+```jsx
+<div className="before" title="hi" />
+<div className="after"  title="hi" />
+// React keeps the same <div>, sets className, leaves title untouched.
+```
+
+**3. List children are matched by key.** For children rendered from an array, React pairs old and new children by their `key`, not by their array index. A stable key tells React "this is the _same_ item, possibly moved or updated," so it can reorder existing DOM nodes and component instances instead of rebuilding them.
+
+```jsx
+{
+  items.map((item) => <Row key={item.id} item={item} />)
+}
+```
+
+<Callout variant="warn" title="Index keys break on reorder">
+  Using the array index as a key makes React match items by position. Insert at the front, and every
+  item "changes": React rewrites each node's content, wipes local/uncontrolled state, mismatches it
+  with the wrong row, and does needless DOM work. Use a stable id that comes from your data.
+</Callout>
+
+## Position decides identity: preserving vs. resetting state
+
+The single most important consequence of the heuristics: **React keeps state for a component as long as it stays rendered at the same position in the tree.** Same position + same type → state is preserved. Different position, or a type change, or a different key → state is thrown away and the component remounts fresh.
+
+This explains some behavior that looks surprising until you see the rule.
+
+**Same position keeps state — even when it looks like a different component.** Here both branches render a `Counter` at the same position, so React reuses the instance and the count survives the toggle:
+
+```jsx
+function App() {
+  const [isFancy, setIsFancy] = useState(false)
+  // Both branches are a <Counter> at position 0 → state is preserved across the toggle.
+  return isFancy ? <Counter isFancy={true} /> : <Counter isFancy={false} />
+}
+```
+
+**Different position resets state.** If the same JSX lives in two _different_ positions of the returned tree, React treats them as two different components and each keeps its own independent state — switching between them resets it.
+
+**Force a reset with a key.** Rendering the same component type at the same position normally preserves state. Give it a different `key` and React treats it as a different element, discarding the old state and remounting:
+
+```jsx
+function Chat({ contact }) {
+  const [text, setText] = useState("")
+  // ...textarea bound to `text`
+}
+
+// Switching contacts should clear the draft. key={contact.id} forces a fresh Chat per contact:
+;<Chat key={to.id} contact={to} />
+```
+
+Without the key, `Chat` stays at the same position across contact switches, so React preserves `text` and the half-typed message leaks into the next conversation. The key turns "same position" into "different element," which is exactly the reset you want.
+
+```jsx
+// Reset a form on demand by bumping a key:
+const [version, setVersion] = useState(0)
+;<button onClick={() => setVersion((v) => v + 1)}>Reset</button>
+;<Form key={version} /> // new key → React remounts Form with fresh state
+```
+
+<Callout variant="tip" title="Keys are scoped to siblings">
+  A key only needs to be unique <em>among siblings</em>, not globally. Changing a key on purpose is
+  a legitimate, idiomatic technique — it is how you say "this is conceptually a brand-new thing,
+  reset everything."
+</Callout>
+
+## Why keys matter so much
+
+Keys are how React preserves **identity** across renders within a list. Without a stable key, an insertion or sort makes React think every element after the change point is a different element — so it remounts components, loses focus, resets uncontrolled inputs, and re-runs mount effects.
+
+```jsx
+// Reverse the list. With index keys, React rewrites the text of every <li> in place,
+// and any local state inside a row ends up attached to the wrong item.
+// With key={item.id}, React simply reorders the existing nodes — state and focus follow the item.
+```
+
+This is the same identity mechanism as the state-reset rule above, applied across siblings: the key, not the position, is what tells React which old instance pairs with which new element.
+
+## Fiber: the architecture underneath
+
+Before React 16, reconciliation was recursive and **synchronous** — once it started walking the tree it could not stop until done, which could block the main thread and drop frames on large updates. **Fiber** is the rewrite that fixed this.
+
+A _fiber_ is a JavaScript object representing one unit of work — roughly one element/component instance. Fibers form a linked tree that React walks **iteratively** rather than through the JS call stack. Because the traversal state lives in those objects (not on the stack), React can **pause** in the middle of rendering, hand control back to the browser, and **resume** later.
+
+React splits the work into two phases:
+
+- **Render phase** — React builds the new fiber tree, calling your components and diffing. This phase is **interruptible**: React can work in small chunks, yield to higher-priority work (like input), and even throw away in-progress work and restart. Because it may run more than once for a single update, render-phase code must be **pure** — no side effects, no DOM mutation.
+- **Commit phase** — once the whole tree is reconciled, React applies the mutations to the real DOM, runs layout effects, swaps refs, and so on. This phase is **synchronous and uninterruptible** — it runs to completion in one pass so the user never sees a half-updated UI.
+
+```
+state change
+   │
+   ▼
+RENDER PHASE  (interruptible — can pause / abort / restart)
+   build work-in-progress fiber tree, diff against current
+   │
+   ▼
+COMMIT PHASE  (synchronous — runs to completion)
+   mutate DOM, run effects, swap "current" ↔ "work-in-progress"
+```
+
+<Callout variant="tip" title="Double buffering">
+  React keeps two trees: the <em>current</em> tree on screen and a <em>work-in-progress</em> tree it
+  builds during render. On commit, it swaps the pointer between them. That is why an aborted render
+  is cheap — the on-screen tree was never touched, so React can throw away the half-built one and
+  start over with no visible glitch.
+</Callout>
+
+## Why this enables concurrent features
+
+Because the render phase can be paused and prioritized, React can do things that were impossible with the old synchronous model:
+
+- **Keep the UI responsive during big updates.** A long render can be sliced so typing or clicking still feels instant — the basis for `useTransition` and `startTransition`.
+- **Prioritize urgent work.** An update marked urgent (a keystroke) can interrupt a non-urgent one (filtering a huge list) that is mid-render.
+- **Bail out and restart.** If newer, more important state arrives while React is rendering, it can discard the in-progress tree and start over with the latest data — no wasted commit.
+
+None of this changes the **mental model** you already have — `UI = f(state)`, components are pure functions returning element trees. Fiber is the _engine_ that makes evaluating that function interruptible. You rarely touch fibers directly, but knowing they exist explains why render must stay pure, why keys are load-bearing, and how concurrent React keeps a heavy app smooth.
+
+## Recap
+
+- A component returns an element tree (the Virtual DOM); reconciliation diffs it against the previous tree to compute minimal DOM changes.
+- The heuristics: a type change replaces the subtree (state lost); the same type updates in place (state kept); list children are matched by `key`.
+- State lives with a component as long as it stays at the same tree position with the same type/key. A different position, type, or key resets it — `key` is your explicit reset switch.
+- Index keys are fragile on insert/reorder; use stable ids from your data.
+- Fiber represents work as interruptible units across an iterative tree: a pure, pausable render phase and a synchronous, all-at-once commit phase — which together make concurrent rendering possible.
+
+## Quick reference
+
+| Situation                      | What reconciliation does                          |
+| ------------------------------ | ------------------------------------------------- |
+| Element type changed           | Unmount old subtree, mount new one (state lost)   |
+| Same type, different props     | Reuse node, patch changed props (state kept)      |
+| Same position, same type/key   | Preserve component state across the update        |
+| Different position or new key  | Treat as a new element — remount, reset state     |
+| List children with stable keys | Match by key, reorder/insert/remove nodes         |
+| List children with index keys  | Match by position — fragile on insert/reorder     |
+| Render phase                   | Interruptible, pure, builds work-in-progress tree |
+| Commit phase                   | Synchronous, mutates DOM, runs effects            |

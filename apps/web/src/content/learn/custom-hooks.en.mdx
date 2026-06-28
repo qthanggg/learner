@@ -1,0 +1,251 @@
+---
+topic: custom-hooks
+lang: en
+title: "Custom hooks"
+summary: "Extracting reusable stateful logic into use* functions, the naming rule, why hooks share logic but never state, a toolbox of real examples, and when not to extract one."
+category: Hooks
+level: intermediate
+order: 100
+readingTime: 9
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Extracting reusable logic
+
+A custom hook is just a JavaScript function whose name starts with `use` and that **calls other hooks**. It's the mechanism React gives you to share _stateful logic_ between components — not UI, not state itself, but the recipe for setting up state and effects.
+
+Say two components both track a boolean toggle. Instead of copy-pasting the `useState` and handlers, lift the logic into a hook:
+
+```jsx
+function useToggle(initial = false) {
+  const [on, setOn] = useState(initial)
+  const toggle = useCallback(() => setOn((v) => !v), [])
+  return [on, toggle]
+}
+
+// Now any component is one line:
+function Panel() {
+  const [open, toggleOpen] = useToggle()
+  return <button onClick={toggleOpen}>{open ? "Hide" : "Show"}</button>
+}
+```
+
+The component reads cleanly and the toggle logic lives in one tested place. Custom hooks are the primary way to keep components small as an app grows.
+
+## A motivating example: useOnlineStatus
+
+Suppose a `StatusBar` shows whether the user is online and a `SaveButton` disables itself when offline. Both need the same logic: subscribe to the browser's `online`/`offline` events. Without a hook, you'd duplicate the `useState` + `useEffect` in both. Extract it once:
+
+```js
+import { useState, useEffect } from "react"
+
+function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(true)
+  useEffect(() => {
+    function handleOnline() {
+      setIsOnline(true)
+    }
+    function handleOffline() {
+      setIsOnline(false)
+    }
+    window.addEventListener("online", handleOnline)
+    window.addEventListener("offline", handleOffline)
+    return () => {
+      window.removeEventListener("online", handleOnline)
+      window.removeEventListener("offline", handleOffline)
+    }
+  }, [])
+  return isOnline
+}
+```
+
+Both components now read a single value, and neither has to know how the subscription works:
+
+```jsx
+function StatusBar() {
+  const isOnline = useOnlineStatus()
+  return <h1>{isOnline ? "✅ Online" : "❌ Disconnected"}</h1>
+}
+
+function SaveButton() {
+  const isOnline = useOnlineStatus()
+  return <button disabled={!isOnline}>{isOnline ? "Save progress" : "Reconnecting..."}</button>
+}
+```
+
+The effect logic is written once and the intent — "tell me if we're online" — is named.
+
+## The rules
+
+Custom hooks follow the same [Rules of Hooks](/learn) as the built-in ones, plus a naming rule:
+
+- **The name must start with `use`** followed by a capital letter (`useOnlineStatus`, not `useonlinestatus`). This isn't cosmetic — React's linter relies on the prefix to know the function may call hooks, so it can enforce the rules of hooks inside it. `getToggle` would be flagged or silently break.
+- **It can call other hooks** (`useState`, `useEffect`, `useContext`, even other custom hooks). A regular function cannot.
+- **Call hooks at the top level** of the custom hook — not inside conditions, loops, or nested functions. Same as any component.
+- **The body should be pure.** Like a component, a custom hook re-runs on every render of the component using it, so it must not have side effects during render — those go in effects.
+
+<Callout variant="warn" title="A function that doesn't call hooks isn't a hook">
+  If your helper never calls `useState`/`useEffect`/etc., make it a plain function and *don't*
+  prefix it with `use`. The prefix is a promise that the rules of hooks apply.
+</Callout>
+
+## Custom hooks share logic, not state
+
+This is the idea people most often get wrong. Each **call** to a custom hook gets its own **fully isolated** state. Two components using `useToggle` do not share a toggle; even two calls in the _same_ component are independent:
+
+```jsx
+function Form() {
+  const [showName, toggleName] = useToggle() // state #1
+  const [showEmail, toggleEmail] = useToggle() // state #2 — totally separate
+  // toggling one never affects the other
+}
+```
+
+A custom hook is a recipe, not a shared variable. When you call it, React runs the recipe fresh and gives that call its own `useState`/`useEffect` slots. If you actually want components to _share the same state_, that's what context (or a state library) is for — not a custom hook by itself.
+
+<Callout variant="note" title="Reactive values flow between hooks">
+  You can pass props or state into a custom hook (`useFetch(url)`), and because the hook re-runs on
+  every render, it always sees the latest value. Hooks compose into a live data-flow, not a one-time
+  setup.
+</Callout>
+
+## A toolbox of examples
+
+**`useLocalStorage`** — state that persists to `localStorage`:
+
+```jsx
+function useLocalStorage(key, initial) {
+  const [value, setValue] = useState(() => {
+    const stored = localStorage.getItem(key)
+    return stored ? JSON.parse(stored) : initial
+  })
+
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value))
+  }, [key, value])
+
+  return [value, setValue]
+}
+```
+
+**`useDebouncedValue`** — returns a value that only updates after it stops changing for `delay` ms; great for search inputs:
+
+```jsx
+function useDebouncedValue(value, delay = 300) {
+  const [debounced, setDebounced] = useState(value)
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(id) // cancel if value changes before delay
+  }, [value, delay])
+
+  return debounced
+}
+
+// Usage: fetch only when the user pauses typing
+const debouncedQuery = useDebouncedValue(query, 400)
+```
+
+**`useFetch`** — a sketch of data-fetching logic (loading/data/error in one place):
+
+```jsx
+function useFetch(url) {
+  const [state, setState] = useState({ data: null, loading: true, error: null })
+
+  useEffect(() => {
+    let active = true
+    setState({ data: null, loading: true, error: null })
+
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => active && setState({ data, loading: false, error: null }))
+      .catch((error) => active && setState({ data: null, loading: false, error }))
+
+    return () => {
+      active = false // ignore the result if url changed / component unmounted
+    }
+  }, [url])
+
+  return state
+}
+```
+
+<Callout variant="tip" title="Always clean up async work">
+  The `active` flag (or an `AbortController`) prevents setting state after the component unmounts or
+  the input changed — a classic source of warnings and race conditions in fetch hooks.
+</Callout>
+
+**`useEventListener`** — subscribe to any event and clean up automatically, so components stop hand-writing `addEventListener` boilerplate:
+
+```jsx
+function useEventListener(target, event, handler) {
+  useEffect(() => {
+    const node = target ?? window
+    node.addEventListener(event, handler)
+    return () => node.removeEventListener(event, handler)
+  }, [target, event, handler])
+}
+
+// Usage: close a menu when the user presses Escape
+useEventListener(window, "keydown", (e) => {
+  if (e.key === "Escape") close()
+})
+```
+
+<Callout variant="note" title="Return an array or an object?">
+  Convention mirrors the built-ins: return an **array** when the two values are positional and meant
+  to be renamed at the call site (`const [open, toggle] = useToggle()`), and an **object** when there
+  are several named fields the caller picks from (`const { data, loading, error } = useFetch(url)`).
+</Callout>
+
+## Composition
+
+Because hooks call hooks, you build bigger ones out of smaller ones. A search box can compose `useFetch` and `useDebouncedValue` so each piece stays small and testable:
+
+```jsx
+function useSearch(query) {
+  const debounced = useDebouncedValue(query, 400)
+  const { data, loading } = useFetch(`/api/search?q=${debounced}`)
+  return { results: data ?? [], loading }
+}
+```
+
+This composability is what makes custom hooks powerful: each one does a single thing, and you stack them. The reactive value (`query`) flows from one hook into the next and stays up to date on every render.
+
+<Callout variant="warn" title="The dependency rule still applies inside hooks">
+  The `exhaustive-deps` lint rule treats your custom hook just like a component: every reactive
+  value used inside an effect must appear in its dependency array. Don't silence the warning — a
+  missing dependency means the effect reads a *stale* value from an old render, the most common
+  custom-hook bug.
+</Callout>
+
+## When NOT to extract a hook
+
+Custom hooks are a tool, not a goal. Extract one when:
+
+- the **same stateful logic is duplicated** across components, or
+- a component has grown hard to follow and a named hook would clarify intent.
+
+Hold off when:
+
+- **There's a single caller and no duplication.** A premature hook with one user is just indirection — inline the logic until a second use appears.
+- **The "hook" wouldn't call any hooks.** That's a plain function; don't dress it up with a `use` prefix.
+- **You're tempted to write lifecycle wrappers** like `useMount` or `useUpdateEffect`. React docs explicitly advise against these — they obscure the dependency-driven model of effects and tend to fight the framework. Keep custom hooks **purpose-specific** (`useChatRoom`, `useOnlineStatus`), not generic lifecycle sugar.
+
+<Callout variant="warn" title="Don't build useMount and friends">
+  Generic lifecycle hooks (`useMount`, `useUpdate`) hide *why* an effect runs and which values it
+  depends on. Prefer a hook named after what it *does* for your app, so its dependencies stay
+  visible and honest.
+</Callout>
+
+## Recap
+
+- A custom hook is a `use*` function that calls other hooks to share **stateful logic**.
+- Name it starting with `use` + a capital letter, call hooks at the top level, and keep the body pure.
+- Each call gets **its own isolated state** — hooks share the recipe, not the data. Use context to share actual state.
+- Reactive values passed in stay up to date because the hook re-runs on every render.
+- Build big hooks by composing small ones (`useSearch` from `useFetch` + `useDebouncedValue`).
+- Extract on duplication or for clarity; avoid premature hooks and generic lifecycle wrappers like `useMount`.
+
+> Custom hooks don't add features to React. They're a convention for _organizing_ the features it already has — so your stateful logic gets a name, a home, and a test.

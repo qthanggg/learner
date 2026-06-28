@@ -63,6 +63,13 @@ const contactChannels: ContactChannel[] = [
             localStorage.setItem("motion-mode", "minimal")
           }
         } catch (e) {}
+        try {
+          // Knowledge-base content language (default "vi"). Seed the attribute
+          // before paint so the right language shows without a flash.
+          var l = localStorage.getItem("learn:lang")
+          if (l !== "en" && l !== "vi") l = "vi"
+          document.documentElement.setAttribute("data-learn-lang", l)
+        } catch (e) {}
       })()
     </script>
 

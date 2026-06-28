@@ -1,0 +1,246 @@
+---
+topic: useeffect
+lang: vi
+title: "useEffect & side effect"
+summary: "Effect chạy lúc nào, dependency array thực sự nghĩa là gì, cleanup hoạt động ra sao, vì sao Strict Mode chạy effect hai lần, và làm sao biết khi nào bạn không cần effect."
+category: Hooks
+level: intermediate
+order: 60
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Side effect là gì
+
+Render trong React vốn phải **thuần khiết** (pure): với cùng props và state, component trả về cùng JSX và không đụng vào thứ gì bên ngoài. **Side effect** là bất cứ thứ gì vươn ra ngoài phép tính thuần đó — đăng ký một sự kiện, đặt timer, fetch dữ liệu, đồng bộ với một widget không phải React, đọc/ghi DOM trực tiếp.
+
+Bạn không thể làm những việc đó trong lúc render, vì render có thể chạy nhiều lần, bị bỏ đi, hoặc bị ngắt giữa chừng. `useEffect` là "cửa thoát hiểm": nó cho phép chạy code **sau khi** React đã commit kết quả lên màn hình.
+
+```jsx
+import { useEffect, useState } from "react"
+
+function WindowWidth() {
+  const [width, setWidth] = useState(window.innerWidth)
+
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth)
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [])
+
+  return <p>Width: {width}px</p>
+}
+```
+
+<Callout variant="note" title="Sau commit và paint">
+  Effect chạy sau khi DOM đã commit và trình duyệt đã paint, nên nó không bao giờ chặn việc cập nhật
+  hiển thị. Nếu bạn cần đo layout *trước* khi paint, đó là việc của `useLayoutEffect`.
+</Callout>
+
+## Mô hình tư duy: đồng bộ hoá, không phải vòng đời
+
+Tài liệu chính thức nhấn mạnh điều này. Một effect không phải là "đoạn code chạy lúc mount" — nó là mô tả cách **giữ một hệ thống bên ngoài đồng bộ** với state React của bạn. Mỗi effect mô tả đúng một mảnh đồng bộ: kết nối tới _phòng này_, đăng ký _sự kiện này_, đồng bộ theo _giá trị này_.
+
+Cách nhìn lại đó quan trọng vì nó đổi cách bạn suy luận về việc chạy lại. Bạn không hỏi "component mount hay update?" mà hỏi "những giá trị effect này phụ thuộc có còn khớp với thứ đã đồng bộ không?" Nếu chúng đổi, React đồng bộ lại — cleanup lần cũ, setup lần mới.
+
+## Dependency array quyết định khi nào effect chạy lại
+
+Tham số thứ hai điều khiển tần suất effect chạy. Có đúng ba dạng, và mỗi dạng mang ý nghĩa khác nhau:
+
+```jsx
+useEffect(() => {
+  /* ... */
+}) // không có array: sau MỖI render
+useEffect(() => {
+  /* ... */
+}, []) // mảng rỗng: một lần sau khi mount (không bao giờ đồng bộ lại)
+useEffect(() => {
+  /* ... */
+}, [userId]) // chạy lại khi userId đổi
+```
+
+Sau mỗi render, React so sánh từng giá trị trong array với giá trị ở render trước (dùng `Object.is`). Chỉ cần một giá trị đổi là effect chạy lại.
+
+```jsx
+function ChatRoom({ roomId }) {
+  const [serverUrl, setServerUrl] = useState("https://localhost:1234")
+
+  useEffect(() => {
+    const connection = createConnection(serverUrl, roomId)
+    connection.connect()
+    return () => connection.disconnect()
+  }, [roomId, serverUrl]) // đồng bộ lại mỗi khi một trong hai giá trị reactive đổi
+}
+```
+
+<Callout variant="note" title="Bạn không tự chọn dependency — code chọn">
+  Danh sách dependency không phải cái núm để chỉnh. Nó phải chứa *mọi* giá trị reactive mà effect
+  đọc (props, state, và giá trị tính từ chúng). Nếu một giá trị được đọc bên trong nhưng thiếu trong
+  array, bạn sẽ nhận giá trị cũ. Linter tự tính ra danh sách đúng cho bạn.
+</Callout>
+
+## Cleanup: chạy khi nào và vì sao
+
+Nếu effect trả về một hàm, React coi đó là hàm **cleanup**. Nó chạy trong hai tình huống:
+
+1. Trước khi effect chạy **lại** (vì một dependency đổi), để dọn dẹp lần chạy trước.
+2. Khi component **unmount**.
+
+Vậy vòng đời của ví dụ `ChatRoom` ở trên là: kết nối phòng A → (roomId đổi) → ngắt kết nối A → kết nối phòng B → (unmount) → ngắt kết nối B. Mỗi lần setup luôn đi kèm đúng một lần cleanup. Quên cleanup là nguồn gốc kinh điển của memory leak, listener bị nhân đôi, và timer "ma".
+
+```jsx
+useEffect(() => {
+  const id = setInterval(() => tick(), 1000)
+  return () => clearInterval(id) // thiếu dòng này, các interval chồng lên nhau
+}, [])
+```
+
+<Callout variant="warn" title="Strict Mode chạy effect hai lần khi dev">
+  Ở môi trường development, Strict Mode của React mount, unmount, rồi remount lại mỗi component —
+  nên effect chạy setup → cleanup → setup. Đây là một bài kiểm tra áp lực, không phải bug: nếu
+  cleanup dọn dẹp đúng phần setup, lần chạy đôi này hoàn toàn vô hình. Nếu lần chạy thứ hai gây lỗi
+  (kết nối bị nhân đôi, bộ đếm tăng gấp đôi), tức là effect của bạn thiếu cleanup. Nó **không** xảy
+  ra ở production.
+</Callout>
+
+## Lỗi thường gặp: stale closure do thiếu dependency
+
+Một effect "đóng gói" (closure) props và state của render đã tạo ra nó. Nếu bạn đọc một giá trị nhưng bỏ nó ra khỏi array, bạn sẽ mãi thấy giá trị cũ.
+
+```jsx
+// 🐛 count bị "chụp" một lần; luôn log ra giá trị ban đầu
+useEffect(() => {
+  const id = setInterval(() => console.log(count), 1000)
+  return () => clearInterval(id)
+}, []) // thiếu `count`
+```
+
+Hoặc thêm `count` vào array (interval sẽ được đặt lại mỗi lần nó đổi), hoặc dùng dạng updater để khỏi bao giờ phải đọc nó:
+
+```jsx
+// ✅ không phụ thuộc vào count chút nào
+useEffect(() => {
+  const id = setInterval(() => setCount((c) => c + 1), 1000)
+  return () => clearInterval(id)
+}, [])
+```
+
+## Lỗi thường gặp: vòng lặp vô tận do dependency là object hoặc function
+
+Nếu một effect set state mà state đó cũng là dependency, nó sẽ chạy mãi không dừng. Object, array và function là biến thể "lén lút" — một `{}` hay `() => {}` mới ở mỗi render không bao giờ `Object.is`-bằng cái trước, nên effect tưởng dep của nó đổi ở _mọi_ render.
+
+```jsx
+// 🐛 options là object mới mỗi render → effect chạy mỗi render
+function ChatRoom({ roomId }) {
+  const options = { serverUrl: "https://localhost:1234", roomId }
+  useEffect(() => {
+    const conn = createConnection(options)
+    conn.connect()
+    return () => conn.disconnect()
+  }, [options]) // object mới mỗi lần
+}
+```
+
+Cách sửa gọn nhất là đưa object vào **bên trong** effect, để nó không còn là dependency:
+
+```jsx
+// ✅ tạo object bên trong; phụ thuộc vào primitive thay vì object
+function ChatRoom({ roomId }) {
+  useEffect(() => {
+    const options = { serverUrl: "https://localhost:1234", roomId }
+    const conn = createConnection(options)
+    conn.connect()
+    return () => conn.disconnect()
+  }, [roomId]) // một string — ổn định qua các render
+}
+```
+
+Nếu một object hoặc function thật sự phải sống ngoài effect, hãy memoize bằng `useMemo` / `useCallback`. Và hãy tin `eslint-plugin-react-hooks` — rule `exhaustive-deps` bắt được gần như tất cả các lỗi này.
+
+<Callout variant="warn" title="Đừng bịt miệng linter">
+  Thêm `// eslint-disable-next-line` để "sửa" vòng lặp vô tận chỉ che giấu vấn đề thật chứ không
+  giải quyết nó. Cách đúng thường là bỏ bớt một dependency (đưa nó vào trong, hoặc dùng functional
+  updater), chứ không phải nói dối về danh sách dependency.
+</Callout>
+
+## Có thể bạn không cần effect
+
+Effect là cửa thoát hiểm để nói chuyện với hệ thống _bên ngoài_ React. Nó không dùng để điều phối luồng dữ liệu _bên trong_ app, và đó chính là chỗ nó bị lạm dụng. Ba nhóm việc gần như không bao giờ nên nằm trong effect.
+
+### 1. Dữ liệu có thể tính ra (derive) trong lúc render
+
+Đừng "soi gương" props/state vào thêm state bằng effect — cứ tính thẳng khi render. Bản dùng effect tốn thêm một lượt render với giá trị cũ, rồi render lại.
+
+```jsx
+// ❌ state thừa + effect thừa
+const [fullName, setFullName] = useState("")
+useEffect(() => {
+  setFullName(first + " " + last)
+}, [first, last])
+
+// ✅ tính trực tiếp khi render
+const fullName = first + " " + last
+```
+
+Tương tự với lọc hay biến đổi danh sách — tính ngay tại chỗ (và chỉ bọc `useMemo` nếu thật sự nặng), đừng đồng bộ nó vào state:
+
+```jsx
+// ✅ không effect, không state thừa
+const visibleTodos = todos.filter((t) => !t.completed)
+```
+
+### 2. Logic phản hồi hành động của người dùng
+
+Việc đó thuộc về event handler, không phải effect. Effect chạy vì có thứ gì đó _render_; handler chạy vì người dùng _đã làm_ gì đó. Gửi sự kiện analytics khi click, submit form, hiện toast thành công sau khi mua hàng — đều là việc của event handler.
+
+```jsx
+// ❌ "render" nào gây ra POST? khó nói, và nó sẽ chạy lại khi remount
+useEffect(() => {
+  if (submitted) post("/api/order", order)
+}, [submitted])
+
+// ✅ nguyên nhân là cú click — giữ nó trong handler
+function handleSubmit() {
+  post("/api/order", order)
+}
+```
+
+<Callout variant="tip" title="Một mẹo kiểm tra nhanh">
+  Hãy hỏi "điều gì khiến đoạn code này chạy?" Nếu câu trả lời là *một tương tác cụ thể của người
+  dùng*, hãy dùng event handler. Nếu là *component xuất hiện, hoặc một giá trị thay đổi*, thì effect
+  có thể là công cụ đúng.
+</Callout>
+
+### 3. Fetching — và phòng race condition
+
+Fetch trong effect là đồng bộ hoá hợp lệ, nhưng có một cái bẫy: response có thể về không đúng thứ tự. Nếu `query` đổi từ `"a"` sang `"ab"`, request `"a"` chậm hơn có thể resolve _sau_ `"ab"` và ghi đè kết quả mới hơn. Cách sửa là một cờ cleanup để bỏ qua response cũ.
+
+```jsx
+function SearchResults({ query }) {
+  const [results, setResults] = useState([])
+
+  useEffect(() => {
+    let ignore = false
+    fetchResults(query).then((json) => {
+      if (!ignore) setResults(json) // bỏ qua nếu một query mới hơn đã bắt đầu
+    })
+    return () => {
+      ignore = true
+    }
+  }, [query])
+
+  // ...
+}
+```
+
+Khi `query` đổi, cleanup đặt `ignore = true` cho lần chạy trước, nên response trễ của nó bị loại bỏ. Trong app thật, hãy ưu tiên lớp dữ liệu của framework hoặc thư viện như React Query — nhưng pattern `ignore` là phiên bản tự viết tối thiểu nhưng đúng, và cũng là thứ giúp fetch vượt qua lần chạy đôi của Strict Mode một cách sạch sẽ.
+
+## Tóm tắt
+
+- Một effect đồng bộ React với hệ thống bên ngoài; hãy xem nó là lựa chọn cuối cùng, không phải đầu tiên.
+- Nó chạy **sau** commit và paint, rồi chạy lại khi một dependency đổi (so sánh `Object.is`).
+- Dependency array phải liệt kê mọi giá trị reactive mà effect đọc — để linter tính giúp.
+- Trả về một hàm cleanup; nó chạy trước mỗi lần chạy lại và khi unmount. Strict Mode chạy đôi ở dev để kiểm chứng nó.
+- Stale closure đến từ thiếu dep; vòng lặp vô tận đến từ dep là object/function — đưa chúng vào trong hoặc memoize.
+- Derive dữ liệu khi render, xử lý hành động người dùng trong handler, và bảo vệ fetch bằng cờ `ignore`.

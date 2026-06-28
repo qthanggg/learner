@@ -1,0 +1,202 @@
+---
+topic: state-management
+lang: vi
+title: "Quản lý state & data fetching"
+summary: "Năm loại state, vì sao global store không phải lựa chọn mặc định, dữ liệu server thực sự nên nằm ở đâu, và một checklist quyết định."
+category: Advanced
+level: advanced
+order: 160
+readingTime: 13
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Không có một loại "state" — có nhiều loại
+
+Sai lầm lớn nhất khi quản lý state trong React là coi mọi state như nhau rồi nhồi hết vào một global store. State có nhiều **loại**, và mỗi loại cần một công cụ khác nhau:
+
+- **Local UI state** — dropdown này đang mở chưa, ô input đang gõ gì, tab nào đang active. Nằm trong component với `useState`/`useReducer`. Phần lớn state là loại này.
+- **Global client state** — theme, user hiện tại, cờ thu gọn sidebar. Chia sẻ giữa các component cách xa nhau, nhưng do client sở hữu.
+- **Server / cache state** — dữ liệu nằm trong database mà bạn fetch qua mạng. Danh sách, profile, mọi thứ bất đồng bộ.
+- **URL state** — route hiện tại, query params, bộ lọc mà bạn muốn chia sẻ và bookmark được. Do thanh địa chỉ sở hữu.
+- **Form state** — giá trị, validation và trạng thái submit của một form. Thường là local, nhưng một thư viện form (hoặc action của React 19) có thể sở hữu nó.
+
+```
+useState / useReducer    →  local UI state
+Context (+ store lib)     →  global client state
+React Query / SWR         →  server / cache state
+router / searchParams     →  URL state
+form lib / form actions   →  form state
+```
+
+Chỉ cần gọi tên đúng loại state bạn đang có thì thường đã trả lời được **nó nên nằm ở đâu** trước khi viết dòng nào.
+
+<Callout variant="tip" title="Hỏi 'ai sở hữu cái này?' trước">
+  Người sở hữu quyết định công cụ. Dữ liệu server do server sở hữu — cache nó vào global store nghĩa
+  là bạn đang nuôi hai nguồn sự thật và đống bug đồng bộ đi kèm.
+</Callout>
+
+## Đừng mặc định với tới global store
+
+Phản xạ thường thấy là cài Redux (hoặc Zustand) ngay ngày đầu rồi nhét mọi thứ vào đó. Hãy kìm lại. Phần lớn state là local, và React vốn đã quản lý local state rất tốt. Một global store thêm boilerplate, thêm vòng vèo, và khiến component khó tái dùng cũng như khó test độc lập hơn.
+
+Bắt đầu từ dưới lên, chỉ đẩy state lên cao khi có thứ **buộc** bạn phải làm vậy:
+
+1. `useState` ngay trong component.
+2. **Đẩy state lên** component cha chung gần nhất khi hai anh em cần dùng.
+3. Truyền xuống qua props (hoặc qua `children`) — prop drilling hai cấp là bình thường.
+4. Chỉ khi drilling qua **nhiều** lớp trở nên đau khổ thì mới dùng Context hoặc store.
+
+```jsx
+// Đẩy state lên: cha sở hữu, cả hai con đọc/ghi nó.
+function FilterPanel() {
+  const [query, setQuery] = useState("")
+  return (
+    <>
+      <SearchBox value={query} onChange={setQuery} />
+      <Results query={query} />
+    </>
+  )
+}
+```
+
+Nguyên tắc "mỗi mẩu state có một nguồn sự thật duy nhất" là bài học cốt lõi của _Sharing state between components_ trong docs React: với mỗi giá trị, đúng một component sở hữu nó rồi truyền xuống. Bạn sẽ đẩy state lên rồi lại xuống khi app tiến hoá — đó là chuyện bình thường, không phải thất bại.
+
+## Context cho global state vừa phải
+
+Với global client state thật sự nhưng tần suất thấp — theme, locale, user đã đăng nhập — React Context là câu trả lời có sẵn. Không cần thư viện:
+
+```jsx
+const ThemeContext = createContext("light")
+
+function App() {
+  const [theme, setTheme] = useState("light")
+  return (
+    <ThemeContext.Provider value={{ theme, setTheme }}>
+      <Layout />
+    </ThemeContext.Provider>
+  )
+}
+
+// Ở bất cứ đâu phía dưới, không cần prop drilling:
+const { theme } = useContext(ThemeContext)
+```
+
+Điểm bẫy: **mọi consumer đều render lại khi giá trị context đổi.** Điều đó ổn với một theme hiếm khi đổi; nhưng là cái bẫy hiệu năng với state cập nhật nhiều lần mỗi giây (vị trí chuột, từng phím gõ form được chia sẻ rộng). Hai cách giảm thiểu:
+
+- **Tách context theo tần suất cập nhật.** Giữ dispatcher `setTheme` ít đổi ở một context và giá trị đổi nhanh ở context khác, để một component chỉ dispatch không render lại theo từng lần giá trị đổi.
+- **Memo hoá object giá trị** để nó không thành tham chiếu mới mỗi render:
+
+```jsx
+const value = useMemo(() => ({ theme, setTheme }), [theme])
+return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+```
+
+<Callout variant="warn" title="Context không phải là state manager">
+  Context chỉ **vận chuyển** một giá trị xuống cây — nó không có tối ưu sẵn cho cập nhật từng phần.
+  Với global state nóng, đổi liên tục, một store thật (cho phép component subscribe theo từng lát)
+  sẽ tránh được cơn bão re-render.
+</Callout>
+
+## Khi nào thực sự cần store: Zustand, Redux Toolkit, Jotai
+
+Nếu bạn có lượng global client state đáng kể, đổi thường xuyên hoặc được đọc bởi nhiều component không liên quan, thì một store chuyên dụng là xứng đáng — chủ yếu vì store cho phép component subscribe **đúng lát nó quan tâm** và bỏ qua các re-render còn lại.
+
+- **Zustand** — tối giản, dựa trên hook, gần như không boilerplate. Một lựa chọn mặc định tốt cho phần lớn app cần đến store.
+- **Redux Toolkit** — Redux hiện đại, "đầy đủ pin". Hơi dài dòng theo chủ ý, nhưng action/reducer có cấu trúc, time-travel DevTools và middleware toả sáng trong team lớn và luồng phức tạp.
+- **Jotai** — state nguyên tử: các atom nhỏ độc lập mà bạn ghép lại. Hợp khi state mịn và nhiều giá trị dẫn xuất.
+
+```jsx
+// Zustand — định nghĩa store, subscribe một lát.
+const useCart = create((set) => ({
+  items: [],
+  add: (item) => set((s) => ({ items: [...s.items, item] })),
+}))
+
+function CartBadge() {
+  // Chỉ render lại khi `count` đổi, không phải mọi lần giỏ hàng thay đổi.
+  const count = useCart((s) => s.items.length)
+  return <span>{count}</span>
+}
+```
+
+Không có "người thắng" duy nhất — chọn dựa trên quy mô team, độ phức tạp, và mức độ cấu trúc bạn muốn áp đặt. Selector (`(s) => s.items.length`) là ý mấu chốt: subscribe vào một lát dẫn xuất chính là thứ khiến store rẻ hơn Context cho state nóng.
+
+## Server state thuộc về một cache data-fetching
+
+Đây là ý quan trọng nhất của cả bài. Dữ liệu bạn fetch từ API **không phải** client state — nó là bản cache cục bộ của thứ do nơi khác sở hữu. Nhét nó vào Redux/Zustand nghĩa là bạn tự tay viết cờ loading, xử lý lỗi, cache, refetch và invalidation cho từng endpoint. Đó là hàng nghìn dòng tái phát minh lại một cái cache, một cách tệ.
+
+Hãy dùng thư viện server-state — **React Query (TanStack Query)** hoặc **SWR** — thay vì vậy:
+
+```jsx
+function Profile({ id }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["user", id],
+    queryFn: () => fetch(`/api/users/${id}`).then((r) => r.json()),
+  })
+
+  if (isLoading) return <Spinner />
+  if (error) return <Error />
+  return <h1>{data.name}</h1>
+}
+```
+
+Một hook cho bạn trạng thái loading/error, gộp các request trùng, refetch nền, và một cache chung đánh khoá theo `queryKey` — nên hai component cùng hỏi một user chỉ tạo một lần gọi mạng.
+
+<Callout variant="note" title="Còn Server Component và use() thì sao?">
+  Trong một framework React 19 / RSC, một phần dữ liệu server được fetch trong Server Component bằng
+  `async`/`await` thuần, hoặc stream về client rồi đọc bằng `use(promise)`. Cách đó lo tốt phần tải
+  ban đầu. Còn để cache phía client, refetch và mutation thì bạn vẫn dùng React Query hoặc SWR — hai
+  hướng tiếp cận bổ trợ cho nhau.
+</Callout>
+
+## Khái niệm cốt lõi: caching, invalidation, stale-while-revalidate
+
+Các thư viện này xây trên vài ý đáng nắm cho phỏng vấn:
+
+- **Caching** — response được lưu theo một key. Component đọc cùng key chia sẻ dữ liệu tức thì; không fetch trùng.
+- **Stale-while-revalidate** — hiển thị dữ liệu trong cache (có thể đã cũ) **ngay lập tức** cho UI mượt, rồi refetch nền và thay dữ liệu mới khi về. Cái tên SWR đến thẳng từ chiến lược HTTP này.
+- **Invalidation** — sau một mutation (ví dụ sửa profile), bạn đánh dấu các mục cache liên quan là cũ để chúng refetch. `queryClient.invalidateQueries(["user", id])` giữ UI nhất quán mà không phải tung hứng state thủ công.
+- **Stale time vs cache (gc) time** — dữ liệu được coi là "tươi" trong bao lâu (không refetch) so với việc nó được giữ trong bộ nhớ bao lâu sau khi không ai dùng.
+
+```jsx
+const mutation = useMutation({
+  mutationFn: updateUser,
+  onSuccess: () => queryClient.invalidateQueries({ queryKey: ["user", id] }),
+})
+```
+
+## URL state: cái "store" bị bỏ quên
+
+Bộ lọc, tab đang active, phân trang, từ khoá tìm kiếm — bất cứ thứ gì người dùng nên **bookmark, chia sẻ hoặc khôi phục khi refresh** đều thuộc về URL, không phải React state. Router (hoặc `URLSearchParams`) trở thành nguồn sự thật:
+
+```jsx
+// Query string sở hữu bộ lọc; component chỉ đọc và ghi nó.
+const [params, setParams] = useSearchParams()
+const sort = params.get("sort") ?? "newest"
+
+;<select value={sort} onChange={(e) => setParams({ sort: e.target.value })}>
+  …
+</select>
+```
+
+Đặt state này vào `useState` là một bug phổ biến: refresh trang là bộ lọc của người dùng biến mất. Nếu nó thuộc về một link chia sẻ được, thì URL sở hữu nó.
+
+## Một checklist quyết định
+
+Đi theo thứ tự; dừng ở chữ "có" đầu tiên:
+
+1. **Chỉ một component dùng nó?** → `useState` / `useReducer`. Xong.
+2. **Vài component gần nhau cùng dùng?** → Đẩy lên cha chung và truyền props.
+3. **Cần sống qua refresh hoặc chia sẻ được?** → Đặt vào **URL**.
+4. **Nó đến từ server / database?** → Một fetching cache (**React Query / SWR**), hoặc RSC + `use()`. Không bao giờ là global store.
+5. **Là global client state đọc ở nhiều nơi nhưng hiếm khi đổi?** → **Context** (memo hoá / tách).
+6. **Là global client state, nóng, đọc bởi nhiều component không liên quan?** → Một **store** (Zustand / RTK / Jotai) với selector.
+7. **Là giá trị form + submit?** → Local state, một thư viện form, hoặc **form action** + `useActionState` của React 19.
+
+<Callout variant="tip" title="Quy tắc thực dụng">
+  Local trước (`useState`). Lift + Context cho global state vừa phải. Một store (Zustand/RTK/Jotai)
+  chỉ khi nhiều component chia sẻ client state đổi liên tục. State chia sẻ được thì vào **URL**. Và
+  **luôn luôn** đặt dữ liệu server vào React Query / SWR (hoặc RSC) — đừng bao giờ dùng global
+  store.
+</Callout>

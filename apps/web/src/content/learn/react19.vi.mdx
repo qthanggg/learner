@@ -1,0 +1,231 @@
+---
+topic: react19
+lang: vi
+title: "React 19: Server Component, Action & use()"
+summary: "Tổng quan React 19 — Server Component, Action, API use(), các hook form mới, ref dạng prop, React Compiler và document metadata."
+category: Advanced
+level: advanced
+order: 170
+readingTime: 14
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+React 19 ít giống một đống API mới mà giống một sự dịch chuyển về nơi code của bạn có thể chạy và lượng boilerplate framework gánh thay bạn. Hai chủ đề xâu chuỗi tất cả: **server trở thành một nơi hạng nhất để render và chạy logic** (Server Component + Action), và **framework gánh thêm phần đấu nối** (các hook form, `use()`, Compiler). Trang này là tổng quan các tính năng nổi bật — đủ để nhận ra chúng trong code thật và biết mỗi cái giải quyết vấn đề gì.
+
+## Server Component
+
+React Server Component (RSC) là component chạy **chỉ trên server**. Chúng render ra một mô tả được stream về client, và điểm mấu chốt là chúng **không gửi JavaScript nào** của bản thân — code của chúng không bao giờ vào bundle trình duyệt. Điều đó khiến chúng lý tưởng cho những phần nhiều dữ liệu, không tương tác của trang.
+
+```jsx
+// app/Page.jsx — một Server Component (mặc định trong các framework RSC).
+// Không useState, không onClick — nó chạy trên server.
+async function Page() {
+  const posts = await db.posts.findMany() // nói chuyện trực tiếp với DB
+  return (
+    <ul>
+      {posts.map((p) => (
+        <li key={p.id}>{p.title}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+Server Component có thể `async` và `await` dữ liệu trực tiếp — không `useEffect`, không state loading, không tầng API ở giữa. Thứ chúng **không** làm được là dùng state, effect hay event handler, vì trên server không có tương tác.
+
+<Callout variant="note" title="RSC cần một framework">
+  Server Component không phải thứ bạn gắn thêm vào một SPA Vite thuần. Chúng cần một framework hiện
+  thực giao thức RSC và tích hợp bundler — Next.js (App Router) hiện tại, và các bên khác đang theo
+  sau.
+</Callout>
+
+## Ranh giới "use client"
+
+Mọi thứ có tương tác — state, effect, event handler — phải là một **Client Component**. Bạn bật nó bằng directive `"use client"` ở đầu file. Đó là một ranh giới: component đó và mọi thứ nó import trở thành một phần của bundle client.
+
+```jsx
+"use client"
+
+import { useState } from "react"
+
+export function LikeButton() {
+  const [liked, setLiked] = useState(false)
+  return <button onClick={() => setLiked(!liked)}>{liked ? "♥" : "♡"}</button>
+}
+```
+
+Mô hình tư duy: **Server Component là mặc định**, và bạn rẽ xuống Client Component ở các lá nơi tương tác thật sự sống. Một Server Component có thể render một Client Component và truyền props hoặc `children` cho nó — kể cả JSX render từ server dưới dạng `children`, đó là cách bạn giữ một lớp vỏ tương tác bọc quanh nội dung server mà không kéo nội dung đó vào bundle client. Chiều ngược lại (một Client Component `import` một Server Component) thì không được phép.
+
+## Server Action & form action
+
+Server Action cho phép một Client Component gọi một hàm chạy **trên server** mà không phải tự tay viết một API route. Bạn đánh dấu hàm bằng `"use server"` và truyền thẳng nó vào prop `action` của form:
+
+```jsx
+// actions.js
+"use server"
+export async function createTodo(formData) {
+  const title = formData.get("title")
+  await db.todos.create({ title })
+}
+```
+
+```jsx
+import { createTodo } from "./actions"
+
+function NewTodo() {
+  return (
+    <form action={createTodo}>
+      <input name="title" />
+      <button>Thêm</button>
+    </form>
+  )
+}
+```
+
+Trong React 19, `<form action={fn}>` cũng chạy ở phía client: hàm nhận `FormData`, React lo việc submit, và bạn có progressive enhancement (form chạy được ngay cả trước khi JS tải xong). Điều này thay thế rất nhiều việc đấu nối `onSubmit` + `fetch` + state thủ công. React 19 gọi chung các hàm async dùng trong transition, form và các hook bên dưới là **"Action"** — chúng tự động quản lý pending state, lỗi và cập nhật lạc quan giúp bạn.
+
+<Callout variant="note" title="Hai directive, hai hướng">
+  `"use client"` đánh dấu code gửi xuống trình duyệt; `"use server"` đánh dấu hàm server mà client
+  có thể gọi. Chúng không phải hai trạng thái của một công tắc — chúng gọi tên hai phía của ranh
+  giới server/client.
+</Callout>
+
+## API use()
+
+`use()` là một primitive mới **đọc một tài nguyên** — quan trọng nhất là một promise hoặc một context. Khác với hook, nó có thể được gọi **có điều kiện** và trong vòng lặp, vì nó không bị ràng buộc bởi thứ tự của rules-of-hooks.
+
+```jsx
+import { use } from "react"
+
+// Đọc một promise — Suspense hiện fallback cho tới khi nó resolve.
+function Comments({ commentsPromise }) {
+  const comments = use(commentsPromise)
+  return comments.map((c) => <p key={c.id}>{c.text}</p>)
+}
+```
+
+```jsx
+// Đọc context có điều kiện — bất khả thi với useContext.
+function Item({ show }) {
+  if (show) {
+    const theme = use(ThemeContext)
+    return <div className={theme}>…</div>
+  }
+  return null
+}
+```
+
+Khi `use()` đọc một promise còn pending, component sẽ suspend và ranh giới `<Suspense>` gần nhất hiện fallback — một cách gọn gàng để tiêu thụ dữ liệu bất đồng bộ được truyền xuống từ một Server Component. Lưu ý `use()` đọc một promise đã có sẵn; nó không tạo promise, nên đừng tạo promise bên trong render (sẽ là một promise mới mỗi lần).
+
+## useActionState, useOptimistic, useFormStatus
+
+React 19 mang theo các hook xoay quanh Action và form:
+
+**`useActionState`** — bọc một action, phơi ra giá trị trả về (thường là lỗi hoặc kết quả), một dispatcher đã bọc để bạn đưa vào `action`, và một cờ `isPending`. Tuyệt cho state form kèm lỗi:
+
+```jsx
+const [error, submitAction, isPending] = useActionState(async (previousState, formData) => {
+  const error = await updateName(formData.get("name"))
+  if (error) return error
+  redirect("/profile")
+  return null
+}, null)
+
+;<form action={submitAction}>
+  <input name="name" />
+  <button disabled={isPending}>Lưu</button>
+  {error && <p>{error}</p>}
+</form>
+```
+
+**`useOptimistic`** — hiện ngay một state UI lạc quan trong khi action đang chạy, rồi điều chỉnh khi nó xong. Hoàn hảo cho list "gửi tin nhắn" cần cảm giác tức thì:
+
+```jsx
+const [optimisticMsgs, addOptimistic] = useOptimistic(messages, (cur, next) => [...cur, next])
+
+async function send(formData) {
+  const text = formData.get("text")
+  addOptimistic({ text, sending: true }) // xuất hiện ngay lập tức
+  await sendMessage(text) // state thật bắt kịp khi thành công
+}
+```
+
+**`useFormStatus`** — cho một con (như nút submit) đọc trạng thái pending của `<form>` **cha** mà không cần prop drilling. Import từ `react-dom`, thiết kế cho component của design system:
+
+```jsx
+import { useFormStatus } from "react-dom"
+
+function SubmitButton() {
+  const { pending } = useFormStatus()
+  return <button disabled={pending}>{pending ? "Đang lưu…" : "Lưu"}</button>
+}
+```
+
+<Callout variant="note" title="Mỗi hook nằm ở đâu">
+  `useActionState` và `useOptimistic` đến từ `react`; `useFormStatus` đến từ `react-dom`.
+  `useActionState` cũng thay thế `useFormState` cũ, thử nghiệm từ `react-dom`.
+</Callout>
+
+## ref dạng prop
+
+Trong React 19, function component có thể nhận `ref` như mọi prop khác — **không còn cần `forwardRef`** (và nó đang bị deprecate). Bớt nghi thức cho các component chuyển tiếp ref tới một node DOM:
+
+```jsx
+// React 19 — không cần bọc forwardRef.
+function MyInput({ placeholder, ref }) {
+  return <input placeholder={placeholder} ref={ref} />
+}
+
+;<MyInput ref={inputRef} placeholder="Tên" />
+```
+
+<Callout variant="warn" title="forwardRef giờ là legacy, chưa biến mất">
+  Code `forwardRef` hiện có vẫn chạy — bạn không phải viết lại ngay hôm nay. Nhưng hãy viết
+  component mới với `ref` dạng prop thường, và chờ một codemod di chuyển kiểu cũ theo thời gian.
+</Callout>
+
+## React Compiler
+
+React Compiler là một công cụ thời build **tự động memo hoá** component và giá trị của bạn — nó tự suy ra cái gì phụ thuộc cái gì rồi chèn vào tương đương `memo`/`useMemo`/`useCallback` giúp bạn. Mục tiêu: thôi chỉnh memoization bằng tay và để compiler bỏ qua các re-render thừa.
+
+Nó là một công cụ riêng, opt-in (một plugin Babel/build) đang được triển khai dần — không tự bật chỉ vì bạn đang dùng React 19. Nó dựa vào việc component của bạn tuân theo Rules of React (render thuần, không mutate props/state), nên code càng "ngoan" thì nó càng tối ưu được nhiều. Hiểu **vì sao** re-render xảy ra vẫn đúng là thứ giúp bạn đọc được nó đang làm gì.
+
+## Document metadata & các tiện ích khác
+
+React 19 cũng làm mượt một loạt ma sát thường ngày:
+
+- **Document metadata** — render `<title>`, `<meta>`, `<link>` ở bất cứ đâu trong cây và React tự nâng chúng vào `<head>`. Không cần `react-helmet` cho các trường hợp phổ biến nữa.
+- **Hỗ trợ stylesheet & async script** — `<link rel="stylesheet" precedence>` và `<script async>` có thể render inline và React tự khử trùng lặp cũng như sắp thứ tự đúng.
+- **Preload tài nguyên** — các API `preload`, `preinit`, `prefetchDNS`, `preconnect` cho bạn gợi ý trình duyệt fetch tài nguyên sớm.
+- **Thông báo lỗi tốt hơn** — lỗi hydration mismatch nay in ra diff dễ đọc thay vì một bức tường chữ lặp, và lỗi không bắt được không bị log hai lần.
+- **`<Context>` làm provider** — bạn có thể render `<ThemeContext value={…}>` trực tiếp thay cho `<ThemeContext.Provider>`.
+- **Hàm cleanup cho ref** — một ref callback có thể trả về một hàm cleanup, giống cách effect dọn dẹp.
+
+```jsx
+function BlogPost({ post }) {
+  return (
+    <article>
+      <title>{post.title}</title>
+      <meta name="description" content={post.summary} />
+      <h1>{post.title}</h1>
+      {/* … */}
+    </article>
+  )
+}
+```
+
+## Tóm lại
+
+- **Server Component** chạy trên server và không gửi JS; chúng `await` dữ liệu trực tiếp. _(cần một framework RSC)_
+- **`"use client"`** đánh dấu ranh giới tương tác; Server Component là mặc định.
+- **Server Action** (`"use server"`) + `<form action>` thay thế API route và đấu nối submit viết tay.
+- **`use()`** đọc một promise hoặc context, có thể đặt điều kiện, và ghép với `<Suspense>`.
+- **`useActionState` / `useOptimistic` / `useFormStatus`** là các hook Action-và-form cho pending state, UI tức thì, và trạng thái form chia sẻ.
+- **`ref` dạng prop** cho `forwardRef` về hưu; **Compiler** tự memo hoá; **document metadata** và resource hint có sẵn native.
+
+<Callout variant="tip" title="Cách khung hoá React 19">
+  Hai chủ đề xâu chuỗi tất cả: **server là một nơi hạng nhất để render và chạy logic** (RSC +
+  Action), và **framework gánh thêm phần boilerplate** (các hook form, `use()`, Compiler). Học mô
+  hình; các API sẽ theo sau.
+</Callout>

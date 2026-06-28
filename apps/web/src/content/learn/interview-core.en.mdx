@@ -1,0 +1,359 @@
+---
+topic: interview-core
+lang: en
+title: "React interview question bank"
+summary: "40 questions that actually come up — with answers that show you understand the why, not just the what."
+category: Interview
+level: intermediate
+order: 200
+readingTime: 20
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+import QA from "../../components/react/learn/QA.tsx"
+
+<Callout variant="interview" title="How to use this">
+  Don't memorize the answers — say them out loud in your own words. A strong answer names the
+  mechanism, then the trade-off. Tap a question to reveal a model answer.
+</Callout>
+
+## Fundamentals
+
+<QA q="What is JSX, and is it required to use React?">
+  JSX is a syntax extension that compiles to plain function calls —<code>&lt;Foo a={1} /&gt;</code>{" "}
+  becomes <code>jsx(Foo, &#123; a: 1 &#125;)</code> (historically
+  <code>React.createElement</code>). It is <em>not</em> required: you could write those calls by
+  hand. It exists because describing a tree of UI reads far better as markup, and because keeping
+  markup and logic in the same file (instead of artificially split by technology) is what makes
+  components cohesive.
+</QA>
+
+<QA q="What's the difference between a React element and a component?">
+  A <strong>component</strong> is a function that returns UI; an <strong>element</strong> is the
+  plain object that function produces — a description like{" "}
+  <code>&#123; type, props, key &#125;</code>. Elements are immutable, cheap to create, and just
+  data — React reads them to decide what to render. The mental model: a component is a recipe, an
+  element is one snapshot of the dish you asked for.
+</QA>
+
+<QA q="How do props work, and why is data flow one-way?">
+  Props are the read-only arguments a parent passes down; a child must never mutate them. Data flows
+  <strong>one way</strong> — parent to child — because it makes the UI predictable: to know why a
+  component shows what it shows, you only look <em>up</em> the tree, not sideways. To send data back
+  up, a parent passes a callback down and the child calls it (events up, data down).
+</QA>
+
+<QA q="What are keys and why shouldn't you use the array index?">
+  Keys give each item in a list a stable identity so React can match elements between renders
+  instead of recreating them. Using the array index breaks when the list reorders, or items are
+  inserted or removed: React then associates state (and DOM) with the wrong item — you see wrong
+  inputs, lost focus, or animation glitches. Use a stable id from your data.
+</QA>
+
+<QA q="Controlled vs uncontrolled components?">
+  A <strong>controlled</strong> input has its value driven by React state (<code>value</code> +
+  <code>onChange</code>) — React is the single source of truth. An <strong>uncontrolled</strong>
+  input keeps its own state in the DOM and you read it via a <code>ref</code> when needed.
+  Controlled gives you validation and instant derived UI; uncontrolled is simpler for large/simple
+  forms and file inputs.
+</QA>
+
+<QA q="What is the virtual DOM and why does React use it?">
+  The virtual DOM is a lightweight in-memory tree of plain objects (React elements) describing the
+  UI. On each render React builds a new tree and <strong>diffs</strong> it against the previous one,
+  then applies the minimal set of real DOM mutations. The win isn't that the virtual DOM is "fast" —
+  it's that it lets you write declarative <strong>UI = f(state)</strong> code while React batches
+  and minimizes the expensive part (touching the real DOM).
+</QA>
+
+## State & rendering
+
+<QA q="What does 'state is a snapshot' mean?">
+  Each render gets its own <em>frozen</em> copy of state, props, and event handlers — the values are
+  fixed for that render and never change underneath you. So <code>setNumber(number + 1)</code> three
+  times in one handler all read the same <code>number</code> and only bump it once. The state
+  variable doesn't change <em>during</em> a render; React schedules a <strong>new</strong> render
+  with the new value.
+</QA>
+
+<QA q="What is batching and when does React do it?">
+  React groups multiple state updates that happen in the same event (and, since React 18, in
+  timeouts, promises, and native handlers too) into a <strong>single re-render</strong>. This avoids
+  rendering for every individual <code>setState</code> and prevents inconsistent half-updated UI.
+  The trade-off you must remember: within that event, the state variables still hold their snapshot
+  values — they don't update line by line.
+</QA>
+
+<QA q="When do you need the updater form setX(prev =&gt; …)?">
+  Use it whenever the next value depends on the previous one, especially when you update more than
+  once in a handler. <code>setNumber(n =&gt; n + 1)</code> queues a function that React applies to
+  the latest queued value, so three calls correctly add three. Passing <code>number + 1</code>{" "}
+  instead reuses the stale snapshot and only counts once. It also lets you avoid listing state in
+  effect dependencies.
+</QA>
+
+<QA q="Why must you update state immutably instead of mutating it?">
+  React decides whether to re-render by comparing the <em>reference</em> of the new state to the old
+  one with <code>Object.is</code>. If you push into the same array or mutate the same object, the
+  reference is unchanged, so React may skip the render — and you've also corrupted the current
+  render's snapshot. Always create a new object/array (<code>[...arr, x]</code>,
+  <code>&#123; ...obj, k &#125;</code>) so the change is detectable and the old snapshot stays
+  intact.
+</QA>
+
+<QA q="When a parent re-renders, do all children re-render too?">
+  By default, yes: React re-runs every child of a re-rendered component, regardless of whether their
+  props changed. It then diffs the output and only patches the DOM that actually differs. To skip
+  the child function call itself, wrap the child in <code>React.memo</code> and keep its props
+  referentially stable — or pass it as <code>children</code> so the parent's state change doesn't
+  recreate it.
+</QA>
+
+<QA q="What is 'derived state' and why avoid storing it in state?">
+  Derived state is anything you can <em>compute</em> from existing props or state — a filtered list,
+  a full name, a total. Storing it in its own <code>useState</code> means you must remember to keep
+  it in sync, which breeds bugs and extra renders. Instead calculate it during render (and wrap in
+  <code>useMemo</code> only if it's genuinely expensive). If you're syncing state with an effect,
+  you probably want derived state instead.
+</QA>
+
+## Hooks
+
+<QA q="Why must hooks be called in the same order every render?">
+  React tracks hook state by <strong>call order</strong>, not by name — there's a list indexed 0, 1,
+  2… per component. If you call a hook conditionally, the indices shift between renders and React
+  reads the wrong slot. That's why hooks must be top-level: no conditions, loops, or early returns
+  before them, and only call them from components or custom hooks.
+</QA>
+
+<QA q="What does the useEffect dependency array do, and what is cleanup for?">
+  The deps tell React when to re-run the effect: after the first commit, then again only when a
+  listed value changed (by <code>Object.is</code>). The <strong>cleanup</strong> function runs
+  before the next effect and on unmount — it's there to undo the previous effect (unsubscribe,
+  disconnect, clear a timer) so you don't leak subscriptions or stack up listeners. Missing a
+  dependency you actually use causes stale closures; an effect with setup should usually have
+  matching cleanup.
+</QA>
+
+<QA q="Why does Strict Mode run effects (and renders) twice in development?">
+  In development, Strict Mode intentionally double-invokes renders and runs each effect
+  <strong>setup → cleanup → setup</strong> to surface bugs early. It's a stress test: if your effect
+  breaks when run twice, it isn't properly cleaning up, and the fix is to make setup/cleanup
+  symmetric — not to add a guard flag. This only happens in dev and never in production.
+</QA>
+
+<QA q="useMemo vs useCallback?">
+  <code>useCallback(fn, deps)</code> is literally <code>useMemo(() =&gt; fn, deps)</code>. useMemo
+  caches a <em>value</em>; useCallback caches a <em>function identity</em>. Both only pay off when
+  something compares the result — a <code>memo</code> child, an effect dep, or another memo's dep.
+  Neither makes a single render faster; they prevent <em>downstream</em> work from re-running.
+</QA>
+
+<QA q="useRef vs state — when do you reach for a ref?">
+  Both persist values across renders, but writing to a ref{" "}
+  <strong>does not trigger a re-render</strong>
+  and the new value is readable immediately (not on the next render). Use state for anything the UI
+  displays; use a ref for values that aren't rendered — a DOM node, a timer id, the previous value,
+  a mutable flag. Rule of thumb: if changing it should repaint the screen, it's state.
+</QA>
+
+<QA q="useReducer vs useState?">
+  Both store state; <code>useReducer</code> moves the update <em>logic</em> into a pure reducer
+  function so transitions live in one place as named actions. Reach for it when several pieces of
+  state change together, when the next state depends intricately on the previous, or when update
+  logic gets hard to follow in scattered handlers. It also makes behavior easier to test and the
+  dispatch identity is stable.
+</QA>
+
+<QA q="What do custom hooks actually share — logic or state?">
+  They share <strong>stateful logic, not state itself</strong>. Each call to a custom hook runs in
+  isolation: two components using <code>useFormInput()</code> get completely independent state. A
+  custom hook is just a function whose name starts with <code>use</code> and that calls other hooks
+  — it's a way to name and reuse a behavior, not a way to make components share one value (that's
+  what lifting state or context is for).
+</QA>
+
+<QA q="What's the re-render caveat with useContext?">
+  Every component that calls <code>useContext</code> re-renders whenever the provider's
+  <code>value</code> changes by reference — and if you pass an inline object/array as
+  <code>value</code>, a new reference is created on every parent render, so all consumers re-render
+  needlessly. Memoize the value, and split unrelated data into separate contexts so a change to one
+  doesn't wake consumers of the other.
+</QA>
+
+## Performance
+
+<QA q="When and why should you actually use React.memo?">
+  <code>memo</code> skips re-rendering a component when its props are shallow-equal to last time —
+  useful for an expensive component that renders often with the same props. But it isn't free: React
+  still does the prop comparison, and it only helps if the props are <em>referentially stable</em>,
+  which usually drags in <code>useCallback</code>/<code>useMemo</code>. Measure first; most
+  components are cheap enough that memo adds complexity for no real gain.
+</QA>
+
+<QA q="What are the common pitfalls of useMemo and useCallback?">
+  They aren't free and they're easy to get wrong: a wrong or missing dependency makes them return
+  stale values, and wrapping trivial work costs more (the cache, the deps array) than it saves. They
+  only matter when something <em>downstream</em> depends on a stable reference. The biggest trap is
+  sprinkling them everywhere "for performance" — that adds noise and memory pressure without
+  measurable benefit.
+</QA>
+
+<QA q="How would you render a list of 10,000 rows efficiently?">
+  Use <strong>virtualization</strong> (windowing): only render the handful of rows currently visible
+  in the viewport plus a small buffer, and recycle them as the user scrolls, using a spacer to keep
+  the scrollbar correct. The DOM holds ~20 nodes instead of 10,000, so layout and paint stay cheap.
+  Libraries like react-window/react-virtual implement this; the trade-off is more complex measuring
+  and handling of variable row heights.
+</QA>
+
+<QA q="How does code-splitting with lazy and Suspense work?">
+  <code>React.lazy(() =&gt; import('./X'))</code> turns a component into a separate bundle that
+  loads on demand, so the initial JS payload shrinks. You wrap the lazy component in
+  <code>&lt;Suspense fallback=&#123;…&#125;&gt;</code>, which shows a fallback while the chunk (or
+  any suspending data) loads. Split at natural boundaries — routes, modals, heavy widgets — so users
+  only download code for what they actually open.
+</QA>
+
+<QA q="useTransition vs useDeferredValue?">
+  Both keep the UI responsive by marking work as non-urgent so React can interrupt it for urgent
+  updates like typing. <code>useTransition</code> wraps the <em>state update</em> you trigger (
+  <code>startTransition(() =&gt; setTab(next))</code>) and gives you an <code>isPending</code> flag;
+  <code>useDeferredValue</code> wraps a <em>value</em> you receive and lets the expensive part lag
+  behind the latest input. Use the first when you own the setter, the second when you only have the
+  value (e.g. a prop).
+</QA>
+
+## Architecture & advanced
+
+<QA q="How does reconciliation decide what to keep, update, or replace?">
+  React compares the new element tree with the previous one at the same position using cheap
+  heuristics: a different element <code>type</code> tears down the old subtree and its state and
+  builds new; the same type keeps the DOM node and just updates changed props; children in a list
+  are matched by <code>key</code>. These O(n) rules (instead of a perfect O(n³) tree diff) are what
+  make re-rendering on every state change affordable.
+</QA>
+
+<QA q="What makes React preserve vs reset a component's state?">
+  State is tied to a component's <strong>position in the tree</strong> plus its <code>key</code>,
+  not to where it appears in your JSX. Render the same component at the same position and its state
+  survives; render a different type there, or change its <code>key</code>, and React unmounts the
+  old one and its state is destroyed. That's why a changing <code>key</code> is the idiomatic way to
+  intentionally reset a form or remount a component.
+</QA>
+
+<QA q="What is an error boundary and what can't it catch?">
+  An error boundary is a component (using <code>componentDidCatch</code>/
+  <code>getDerivedStateFromError</code>) that catches render-time errors in its subtree and shows a
+  fallback instead of unmounting the whole app. It does <em>not</em> catch errors in event handlers,
+  async code, or itself — those you handle with normal <code>try/catch</code>. Place boundaries
+  around independent regions so one broken widget doesn't take down the page.
+</QA>
+
+<QA q="What are portals and when do you need them?">
+  <code>createPortal(child, domNode)</code> renders children into a different DOM node while keeping
+  them in the same React tree — so context, state, and event bubbling still work as if they were
+  nested normally. You need it for UI that must escape a parent's <code>overflow:hidden</code> or
+  <code>z-index</code> / clipping context: modals, tooltips, dropdowns, toasts.
+</QA>
+
+<QA q="When do you lift state up vs use context vs reach for a store?">
+  Start by <strong>lifting state</strong> to the closest common parent — simplest and most explicit.
+  Use <strong>context</strong> when many components at different depths need the same
+  rarely-changing value (theme, current user, locale) and prop-drilling hurts. Reach for an external
+  <strong>store</strong> (Redux/Zustand/Jotai) when state is large, updates frequently, or is shared
+  widely and you need fine-grained subscriptions context can't give without over-rendering.
+</QA>
+
+<QA q="Server state vs client state — why treat them differently?">
+  <strong>Client state</strong> is owned by your app and synchronous (form inputs, toggles, which
+  tab is open). <strong>Server state</strong> is a cached copy of data that truly lives elsewhere —
+  it's async, shared, and can go stale, so it needs fetching, caching, revalidation, and
+  deduplication. Forcing server state into <code>useState</code>+<code>useEffect</code> reinvents
+  all of that badly; tools like React Query / RTK Query exist precisely to manage the server half.
+</QA>
+
+## React 19 / modern
+
+<QA q="What problem do Server Components solve, and what is 'use client'?">
+  Server Components run only on the server and send rendered output (not their JS) to the client, so
+  data-fetching components ship zero bundle and can reach the data layer directly. The
+  <code>"use client"</code> directive marks the boundary where a module (and its imports) becomes a
+  client component that can use state, effects, and event handlers. The goal: less JavaScript
+  shipped, data closer to the render, while keeping the component model.
+</QA>
+
+<QA q="How do form Actions and useActionState work in React 19?">
+  You can pass a function to a <code>&lt;form action=&#123;…&#125;&gt;</code>; React calls it with
+  the
+  <code>FormData</code> on submit and manages the pending state for you. <code>useActionState</code>
+  wraps that action to return <code>[state, formAction, isPending]</code>, so error/result state and
+  the loading flag come from one place instead of manual <code>useState</code> wiring. Actions also
+  run inside transitions, keeping the UI responsive during submission.
+</QA>
+
+<QA q="What is the use() API and how is it different from a hook?">
+  <code>use()</code> reads the value of a resource — a Promise (it suspends until it resolves) or a
+  context. Unlike every other hook, it <em>can</em> be called conditionally and inside loops,
+  because it isn't tied to the fixed hook call-order slots. Read a promise with{" "}
+  <code>use(promise)</code>
+  under a <code>&lt;Suspense&gt;</code> boundary to get data-in-render without a manual loading
+  state.
+</QA>
+
+<QA q="What does useOptimistic do?">
+  It lets you show an <strong>optimistic</strong> result immediately while an async action is still
+  pending, then reconciles with the real state when it settles. You render the optimistic value, and
+  if the action fails or returns something different, React automatically reverts to the actual
+  state. It's the clean way to make actions feel instant (a sent message, a liked post) without
+  hand-rolling rollback logic.
+</QA>
+
+<QA q="What changed about refs in React 19 (ref as a prop)?">
+  Function components can now receive <code>ref</code> as a regular prop, so
+  <code>forwardRef</code> is no longer needed for the common case — you just declare
+  <code>function Input(&#123; ref, ...props &#125;)</code>. Refs can also return a cleanup function
+  from the ref callback. It's a small ergonomics win that removes a layer of boilerplate around
+  reusable components.
+</QA>
+
+<QA q="What is the React Compiler and what does it change?">
+  The React Compiler automatically memoizes components and values at build time, so in many cases
+  you no longer hand-write <code>useMemo</code>, <code>useCallback</code>, or <code>memo</code> — it
+  figures out what can be cached as long as your code follows the Rules of React (pure render, no
+  mutation). The payoff is fewer manual optimizations and fewer stale-dep bugs; the catch is your
+  components must actually be pure for it to be safe.
+</QA>
+
+## Practical / "what would you do"
+
+<QA q="A callback logs an old value — how do you diagnose a stale closure?">
+  The function captured variables from the render where it was created, so it 'sees' that render's
+  snapshot. It usually comes from an effect or memoized callback with a missing dependency, or a
+  long-lived subscription/timer set up once. The fix is to add the real dependency (so the closure
+  is recreated), use the updater form <code>setX(prev =&gt; …)</code> to avoid depending on the
+  value, or move the latest value into a ref / an Effect Event.
+</QA>
+
+<QA q="You see an effect that copies a prop into state on every change — what do you do?">
+  That's a classic 'you might not need an Effect' smell: syncing state with an effect causes an
+  extra render and can flash stale data. If the value is <em>derived</em> from props, just compute
+  it during render (memoize only if expensive). If you need to <em>reset</em> some state when a prop
+  changes, prefer giving the component a <code>key</code> so React remounts it cleanly instead of
+  patching it in an effect.
+</QA>
+
+<QA q="What symptoms point to a wrong key in a list?">
+  Telltale signs: after reordering or deleting, an input's text or checkbox state 'sticks' to the
+  wrong row; focus jumps; an item's animation plays on the wrong element; or component state from a
+  removed item leaks into a new one. The cause is usually index-as-key or a key that isn't stable
+  across renders. Switch to a stable id derived from the data.
+</QA>
+
+<QA q="setState ran but the value didn't change immediately — why, and is it a bug?">
+  It's not a bug — state updates are a <strong>request</strong>, not an immediate mutation. The
+  variable in the current render is a snapshot; the new value appears on the <em>next</em> render,
+  and React batches updates within an event. If you need to compute from the latest value, use the
+  updater form <code>setCount(c =&gt; c + 1)</code>; if you need to react to the new value, do it in
+  render or an effect, not right after the setter.
+</QA>

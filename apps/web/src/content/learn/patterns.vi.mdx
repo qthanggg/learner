@@ -1,0 +1,321 @@
+---
+topic: patterns
+lang: vi
+title: "Các pattern component"
+summary: "Composition, compound component, render props, HOC, controlled vs uncontrolled và state-reducer — pattern nào hiện đại và pattern nào đã lỗi thời."
+category: Advanced
+level: advanced
+order: 150
+readingTime: 13
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+Một "pattern" trong React chỉ là một hình dạng lặp lại để chia sẻ **markup**, **state** hoặc **logic** giữa các component. Phần khó không phải là học thuộc chúng — mà là biết cái nào hợp với bài toán, và cái nào React hiện đại đã âm thầm cho về hưu. Trang này đi qua cả danh mục, từ thứ dùng hằng ngày (composition) tới thứ mang tính lịch sử (HOC), gắn nhãn **hiện đại** hay **lỗi thời** cho từng cái.
+
+## Composition với `children`
+
+Pattern cơ bản nhất của React không phải một trừu tượng cao siêu — chỉ đơn giản là truyền JSX qua `children`. Một component nhận `children` trở thành cái khung chứa tổng quát mà không cần biết bên trong là gì:
+
+```jsx
+function Card({ title, children }) {
+  return (
+    <section className="card">
+      <h3>{title}</h3>
+      <div className="card-body">{children}</div>
+    </section>
+  )
+}
+
+// Bất cứ thứ gì cũng đặt vào được — Card không bị dính vào nội dung cụ thể.
+;<Card title="Profile">
+  <Avatar user={user} />
+  <Bio text={user.bio} />
+</Card>
+```
+
+Đây chính là thứ mà các framework khác gọi là "slot". Khi cần nhiều "lỗ", hãy truyền JSX qua các **prop có tên** thay cho (hoặc bên cạnh) `children`:
+
+```jsx
+function Layout({ header, sidebar, children }) {
+  return (
+    <div className="layout">
+      <header>{header}</header>
+      <aside>{sidebar}</aside>
+      <main>{children}</main>
+    </div>
+  )
+}
+
+;<Layout header={<Nav />} sidebar={<Filters />}>
+  <PostList />
+</Layout>
+```
+
+Composition là câu trả lời mặc định cho câu hỏi "làm sao để tái sử dụng?" — hãy dùng nó trước khi nghĩ tới context, render props hay thứ gì phức tạp hơn. Nó cũng giữ component **mở để mở rộng**: người gọi tự bơm nội dung vào, nên `Card` không cần thêm prop cho từng biến thể.
+
+<Callout variant="tip" title="Composition hơn configuration">
+  Trước khi thêm prop boolean thứ mười vào một component, hãy tự hỏi liệu người gọi có thể truyền
+  `children` hoặc một prop JSX thay thế không. Slot thì mở rộng tốt; mớ cờ boolean thì không.
+</Callout>
+
+## Compound components
+
+Compound component cho phép một nhóm các phần chia sẻ state ngầm trong khi người dùng tự do sắp xếp chúng. `<Tabs>`, `<Accordion>`, `<Select>` — dạng kinh điển là một component cha giữ state và các con đọc nó qua context:
+
+```jsx
+import { createContext, useContext, useState } from "react"
+
+const TabsContext = createContext(null)
+
+function Tabs({ defaultValue, children }) {
+  const [active, setActive] = useState(defaultValue)
+  return <TabsContext.Provider value={{ active, setActive }}>{children}</TabsContext.Provider>
+}
+
+function useTabs() {
+  const ctx = useContext(TabsContext)
+  if (!ctx) throw new Error("<Tabs.Tab> phải nằm trong <Tabs>")
+  return ctx
+}
+
+function TabList({ children }) {
+  return <div role="tablist">{children}</div>
+}
+
+function Tab({ value, children }) {
+  const { active, setActive } = useTabs()
+  return (
+    <button role="tab" aria-selected={active === value} onClick={() => setActive(value)}>
+      {children}
+    </button>
+  )
+}
+
+function TabPanel({ value, children }) {
+  const { active } = useTabs()
+  return active === value ? <div role="tabpanel">{children}</div> : null
+}
+
+Tabs.List = TabList
+Tabs.Tab = Tab
+Tabs.Panel = TabPanel
+```
+
+Người dùng chỉ viết markup khai báo, không phải tự nối state bằng tay:
+
+```jsx
+<Tabs defaultValue="overview">
+  <Tabs.List>
+    <Tabs.Tab value="overview">Tổng quan</Tabs.Tab>
+    <Tabs.Tab value="specs">Thông số</Tabs.Tab>
+  </Tabs.List>
+  <Tabs.Panel value="overview">…</Tabs.Panel>
+  <Tabs.Panel value="specs">…</Tabs.Panel>
+</Tabs>
+```
+
+Đây là pattern hiện đại, được khuyến nghị — phần lớn thư viện headless UI (Radix, React Aria, Headless UI) phơi bày component theo đúng cách này. Hook bảo vệ `useTabs` đáng để sao chép: nó biến lỗi "dùng ngoài provider" từ một cú crash `null` khó hiểu thành một thông báo rõ ràng.
+
+<Callout variant="note" title="Định danh của giá trị context">
+  `value={{ active, setActive }}` của provider là một object mới mỗi lần render. Với một widget tabs
+  thì không sao. Nhưng nếu context của compound component cập nhật trên đường nóng, hãy memo hoá giá
+  trị hoặc tách nó ra để các consumer không cùng re-render một lượt.
+</Callout>
+
+## Render props
+
+Render prop là một prop có giá trị là **một hàm trả về JSX**. Component nắm phần logic và trả kết quả lại cho người gọi để render:
+
+```jsx
+function MouseTracker({ render }) {
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  return <div onMouseMove={(e) => setPos({ x: e.clientX, y: e.clientY })}>{render(pos)}</div>
+}
+
+// Người gọi tự quyết định vẽ gì với x/y được chia sẻ.
+;<MouseTracker
+  render={({ x, y }) => (
+    <p>
+      {x}, {y}
+    </p>
+  )}
+/>
+```
+
+Render props là cách chia sẻ **logic có state** thời chưa có hook. Đa số trường hợp từng cần nó giờ gọn hơn nhiều khi viết thành custom hook (`const pos = useMousePosition()`):
+
+```jsx
+// Cùng khả năng, không có element bọc, không lồng nhau.
+function useMousePosition() {
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  useEffect(() => {
+    const onMove = (e) => setPos({ x: e.clientX, y: e.clientY })
+    window.addEventListener("mousemove", onMove)
+    return () => window.removeEventListener("mousemove", onMove)
+  }, [])
+  return pos
+}
+```
+
+Render props vẫn hữu ích khi logic chia sẻ còn phải **render gì đó** hoặc kiểm soát **vị trí** JSX của người dùng xuất hiện trong cây — các thư viện list ảo hoá và data-grid vẫn dùng để đưa cho bạn props của từng dòng.
+
+## Higher-order components (HOC)
+
+HOC là một hàm nhận vào một component và trả về một component mới đã được "nâng cấp". `withRouter`, `connect` (Redux cũ) và `withAuth` là ví dụ kinh điển:
+
+```jsx
+function withUser(Component) {
+  return function WithUser(props) {
+    const user = useContext(UserContext)
+    return <Component {...props} user={user} />
+  }
+}
+
+const Profile = withUser(BaseProfile)
+```
+
+HOC chia sẻ logic bằng cách **bọc**, kéo theo nhiều vấn đề thật: đụng độ tên prop, "wrapper hell" mù mờ trong cây component, mất `ref` trừ khi bạn forward nó, và typing rắc rối. **Hook đã thay thế HOC ở gần như mọi việc** — thay vì bọc một component để tiêm `user`, bạn chỉ cần gọi `useUser()` bên trong nó. Không wrapper, không vòng vèo prop, kết hợp tuyến tính.
+
+<Callout variant="note" title="Lỗi thời, không phải cấm">
+  Bạn vẫn sẽ gặp HOC trong codebase cũ và vài thư viện (`React.memo` về kỹ thuật cũng là một HOC).
+  Hãy hiểu chúng, nhưng logic chia sẻ mới thì viết bằng hook.
+</Callout>
+
+## Controlled vs uncontrolled
+
+Pattern này nói về **ai sở hữu state của component**. Component **controlled** giữ giá trị trong props và báo thay đổi lên trên; component **uncontrolled** tự quản state nội bộ và bạn chỉ đọc khi cần (qua ref hoặc callback).
+
+```jsx
+// Controlled — cha sở hữu giá trị, một nguồn sự thật duy nhất.
+<input value={name} onChange={(e) => setName(e.target.value)} />
+
+// Uncontrolled — DOM giữ giá trị; đọc nó khi submit.
+<input defaultValue="Thang" ref={inputRef} />
+```
+
+Ý tưởng đó cũng áp dụng cho component **của bạn**. Thiết kế một `<Toggle>` tái dùng? Hỗ trợ cả hai: nhận `value`/`onChange` tuỳ chọn (controlled) và lùi về state nội bộ khi không có (uncontrolled). Đây đúng là cách `<input>` hoạt động và là giao kèo chuẩn cho các component dạng form.
+
+```jsx
+function Toggle({ value, defaultValue, onChange }) {
+  const [internal, setInternal] = useState(defaultValue ?? false)
+  const isControlled = value !== undefined
+  const on = isControlled ? value : internal
+  const toggle = () => {
+    if (!isControlled) setInternal(!on)
+    onChange?.(!on)
+  }
+  return <button aria-pressed={on} onClick={toggle} />
+}
+```
+
+<Callout variant="warn" title="Đừng nhảy qua lại giữa controlled và uncontrolled">
+  Truyền `value={undefined}` ở lần render này rồi một giá trị thật ở lần sau khiến React đổi mode và
+  cảnh báo trong console. Quyết định quyền sở hữu một lần: một prop hoặc luôn controlled, hoặc luôn
+  uncontrolled trong suốt vòng đời component. Đặt giá trị mặc định cho input uncontrolled bằng
+  `defaultValue`, đừng dùng `value={something ?? ""}` lúc có lúc không.
+</Callout>
+
+## Mẹo `children` để tránh re-render
+
+Khi component cha render lại, nó chạy lại mọi con — **trừ khi** đứa con đó được truyền vào dưới dạng `children` (hay bất kỳ prop JSX nào). React tái dùng element đã tạo sẵn đó, nên con không render lại chỉ vì state của cha đổi:
+
+```jsx
+// ExpensiveTree render lại mỗi lần click — vì nó được tạo bên trong render của Parent.
+function Parent() {
+  const [n, setN] = useState(0)
+  return (
+    <div onClick={() => setN(n + 1)}>
+      {n}
+      <ExpensiveTree />
+    </div>
+  )
+}
+
+// Giờ ExpensiveTree do App tạo và truyền vào dạng children.
+// State của Counter đổi không đụng tới nó — không cần memo.
+function App() {
+  return (
+    <Counter>
+      <ExpensiveTree />
+    </Counter>
+  )
+}
+
+function Counter({ children }) {
+  const [n, setN] = useState(0)
+  return (
+    <div onClick={() => setN(n + 1)}>
+      {n}
+      {children}
+    </div>
+  )
+}
+```
+
+Element truyền qua `children` là **cùng một tham chiếu object** qua các lần re-render của `Counter`, nên React bỏ qua việc render lại nhánh con đó. Đây là cách thay thế cho `React.memo` về mặt cấu trúc — chỉnh lại hình dạng cây thì thường chẳng cần memoization nữa.
+
+<Callout variant="note" title="Compiler thay đổi bài toán">
+  React Compiler tuỳ chọn của React 19 tự memo hoá giúp bạn, nên nhiều mẹo thủ công này bớt quan
+  trọng trong code mới. Chúng vẫn đáng hiểu: chúng giải thích **vì sao** một re-render xảy ra, chính
+  là thứ giúp bạn đọc được Compiler đã làm gì.
+</Callout>
+
+## State-reducer pattern
+
+Khi một component tái dùng được nhưng các bước chuyển state nội bộ của nó cần **người gọi tuỳ biến**, thì **state-reducer pattern** cho phép consumer chặn và ghi đè cách state thay đổi. Component giữ một reducer mặc định; người gọi có thể truyền reducer của riêng họ để bẻ những bước chuyển cụ thể:
+
+```jsx
+function useToggle({ reducer = defaultReducer } = {}) {
+  const [on, dispatch] = useReducer(reducer, false)
+  const toggle = () => dispatch({ type: "toggle" })
+  return { on, toggle }
+}
+
+function defaultReducer(state, action) {
+  switch (action.type) {
+    case "toggle":
+      return !state
+    default:
+      return state
+  }
+}
+
+// Người gọi: "sau 4 lần toggle, từ chối bật lại" — mà không phải fork component.
+function App() {
+  const clicks = useRef(0)
+  const { on, toggle } = useToggle({
+    reducer(state, action) {
+      if (action.type === "toggle" && clicks.current >= 4) return state
+      return defaultReducer(state, action)
+    },
+  })
+  return (
+    <button
+      onClick={() => {
+        clicks.current++
+        toggle()
+      }}
+      aria-pressed={on}
+    />
+  )
+}
+```
+
+Đây là pattern nâng cao, chủ yếu cỡ thư viện (được Downshift làm phổ biến). Bạn hiếm khi cần trong code ứng dụng, nhưng nó là cách sạch nhất để cho một component tái dùng các **lối thoát hiểm** mà không làm phình bề mặt prop — người gọi tuỳ biến hành vi bằng cách sở hữu reducer, chứ không phải bật tắt cả tá cờ.
+
+## Tóm lại
+
+- **Chia sẻ markup?** Dùng `children` và các prop JSX có tên — công cụ đơn giản, linh hoạt nhất. _(hiện đại)_
+- **Chia sẻ state nhóm cho một bộ các phần?** Compound component với context. _(hiện đại)_
+- **Chia sẻ logic có state?** Một custom hook. Render props và HOC là câu trả lời thời chưa có hook. _(hook hiện đại; HOC lỗi thời)_
+- **Render props** còn sống ở chỗ logic phải vừa render vừa đặt JSX. _(ngách-hiện đại)_
+- **Controlled vs uncontrolled** là một giao kèo thiết kế — chọn một mô hình sở hữu và giữ nguyên.
+- **Tính ổn định tham chiếu của `children`** né re-render theo cấu trúc; Compiler ngày càng làm việc này thay bạn.
+- **State-reducer** trao cho người gọi một đường nối tuỳ biến — chỉ dùng khi xây các primitive tái dùng.
+
+<Callout variant="tip" title="Chọn pattern theo ý định">
+  Chia sẻ *markup*? `children`. Chia sẻ *state nhóm*? Compound component. Chia sẻ *logic*? Custom
+  hook (không phải HOC). Quyết định *ai sở hữu giá trị*? Giao kèo controlled/uncontrolled. Để người
+  gọi *bẻ hành vi*? State-reducer.
+</Callout>
