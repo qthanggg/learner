@@ -1,4 +1,4 @@
-# Leaner
+#Leaner
 
 > 🌐 **English** · [Tiếng Việt](#tiếng-việt)
 
