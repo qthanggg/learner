@@ -1,0 +1,186 @@
+---
+topic: reconciliation
+lang: vi
+title: "Reconciliation, Virtual DOM & Fiber"
+summary: "Cách React xác định cái gì đã thay đổi: cây element, heuristic diffing, vai trò của key trong việc giữ và reset state, và kiến trúc Fiber giúp concurrent rendering trở nên khả thi."
+category: Advanced
+level: advanced
+order: 130
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Reconciliation thực chất là gì
+
+Khi state thay đổi, component của bạn trả về một **cây React element mới** — những object JavaScript thuần mô tả UI. React đã giữ sẵn cây _trước đó_ từ lần render trước. Reconciliation là quá trình so sánh hai cây này và tìm ra **tập hợp tối thiểu các thay đổi DOM** cần thiết để biến UI cũ thành UI mới.
+
+Cây element trong bộ nhớ thường được gọi là **Virtual DOM**. Nó không phải một API bạn gọi — nó chỉ là biểu diễn dạng object nhẹ nhàng mà React dùng để diff. Tạo và thay đổi node DOM thật rất tốn kém; còn object JS thuần thì rẻ. React làm mọi tính toán trên các object rẻ và chạm vào DOM thật càng ít càng tốt.
+
+```js
+// Hai lần render tạo ra hai cây element:
+prevTree = { type: "ul", children: [<li>A</li>, <li>B</li>] }
+nextTree = { type: "ul", children: [<li>A</li>, <li>B</li>, <li>C</li>] }
+// Reconciliation kết luận: giữ A và B, chèn thêm một <li>C</li>.
+```
+
+Một React element chỉ là một mô tả — `{ type, props, key }`. Nó không phải node DOM, cũng không phải instance component. Trả về một cây element mới là rẻ; cái tốn kém là quyết định _làm gì_ với nó, và đó là điều reconciliation tối ưu.
+
+<Callout variant="note" title="Diff cả cây thì quá chậm">
+  Thuật toán diff cây tổng quát có độ phức tạp O(n³). React kéo nó xuống xấp xỉ O(n) bằng cách dựa
+  vào vài heuristic thực dụng thay vì cố tìm tập chỉnh sửa tối ưu về mặt lý thuyết. Các heuristic
+  này là giả định về cách UI thực sự thay đổi — và cách bạn viết component là thứ khiến chúng đúng.
+</Callout>
+
+## Các heuristic diffing
+
+Quá trình diff của React đi từ gốc xuống cả hai cây, so sánh các node ở cùng vị trí. Ba quy tắc chi phối gần như mọi thứ.
+
+**1. Khác type element → thay nguyên subtree.** Nếu một node đổi type (`<div>` thành `<span>`, hay `<Profile>` thành `<Settings>`), React không cố tái sử dụng gì cả. Nó unmount subtree cũ — hủy các node DOM và toàn bộ state của component bên trong — rồi mount subtree mới từ đầu, chạy lại các mount effect.
+
+```jsx
+// Toggle cái này sẽ tráo <a> thành <button>: node cũ và mọi state bên dưới nó bị vứt bỏ.
+{
+  isLink ? <a href="/x">Go</a> : <button onClick={go}>Go</button>
+}
+```
+
+**2. Cùng type → giữ node, cập nhật props.** Nếu type khớp, React giữ nguyên node DOM và instance component đang có, rồi chỉ vá những attribute/prop thực sự đã đổi. State và ref của component được giữ nguyên qua lần update.
+
+```jsx
+<div className="before" title="hi" />
+<div className="after"  title="hi" />
+// React giữ nguyên <div>, set lại className, để nguyên title.
+```
+
+**3. List children được khớp theo key.** Với các children render từ một mảng, React ghép cặp children cũ và mới theo `key`, chứ không theo index của mảng. Một key ổn định cho React biết "đây vẫn là _cùng_ một item, có thể đã di chuyển hoặc cập nhật" để nó sắp xếp lại node DOM và instance component đang có thay vì dựng lại.
+
+```jsx
+{
+  items.map((item) => <Row key={item.id} item={item} />)
+}
+```
+
+<Callout variant="warn" title="Key theo index hỏng khi sắp xếp lại">
+  Dùng index của mảng làm key khiến React khớp item theo vị trí. Chèn vào đầu danh sách, mọi item
+  đều "thay đổi": React viết lại nội dung từng node, xóa state cục bộ/không kiểm soát, ghép nó nhầm
+  vào row sai, và gây thao tác DOM thừa. Hãy dùng id ổn định đến từ dữ liệu.
+</Callout>
+
+## Vị trí quyết định danh tính: giữ vs. reset state
+
+Hệ quả quan trọng nhất của các heuristic: **React giữ state cho một component chừng nào nó còn được render ở cùng vị trí trong cây.** Cùng vị trí + cùng type → state được giữ. Khác vị trí, hoặc đổi type, hoặc khác key → state bị vứt bỏ và component remount mới hoàn toàn.
+
+Điều này giải thích một số hành vi trông kỳ lạ cho tới khi bạn thấy quy tắc.
+
+**Cùng vị trí thì giữ state — kể cả khi trông như một component khác.** Ở đây cả hai nhánh đều render một `Counter` ở cùng vị trí, nên React tái dùng instance và số đếm sống sót qua lần toggle:
+
+```jsx
+function App() {
+  const [isFancy, setIsFancy] = useState(false)
+  // Cả hai nhánh đều là một <Counter> ở vị trí 0 → state được giữ qua lần toggle.
+  return isFancy ? <Counter isFancy={true} /> : <Counter isFancy={false} />
+}
+```
+
+**Khác vị trí thì reset state.** Nếu cùng một JSX nằm ở hai vị trí _khác nhau_ của cây trả về, React coi chúng là hai component khác nhau và mỗi cái giữ state độc lập của riêng nó — chuyển qua lại giữa chúng sẽ reset.
+
+**Buộc reset bằng key.** Render cùng một type component ở cùng vị trí thường giữ state. Cho nó một `key` khác và React coi nó là element khác, vứt state cũ đi và remount:
+
+```jsx
+function Chat({ contact }) {
+  const [text, setText] = useState("")
+  // ...textarea gắn với `text`
+}
+
+// Chuyển contact thì nên xóa bản nháp. key={contact.id} buộc tạo Chat mới cho mỗi contact:
+;<Chat key={to.id} contact={to} />
+```
+
+Không có key, `Chat` ở nguyên cùng vị trí qua các lần chuyển contact, nên React giữ `text` và tin nhắn gõ dở rò sang cuộc trò chuyện kế tiếp. Key biến "cùng vị trí" thành "element khác", đúng là cái reset bạn cần.
+
+```jsx
+// Reset một form theo yêu cầu bằng cách tăng key:
+const [version, setVersion] = useState(0)
+;<button onClick={() => setVersion((v) => v + 1)}>Reset</button>
+;<Form key={version} /> // key mới → React remount Form với state mới
+```
+
+<Callout variant="tip" title="Key chỉ có phạm vi trong các sibling">
+  Một key chỉ cần duy nhất <em>trong phạm vi các sibling</em>, không cần duy nhất toàn cục. Đổi key
+  có chủ đích là một kỹ thuật hợp lệ và idiomatic — đó là cách bạn nói "về mặt khái niệm đây là một
+  thứ mới toanh, hãy reset tất cả".
+</Callout>
+
+## Vì sao key lại quan trọng đến vậy
+
+Key là cách React giữ **danh tính (identity)** của element qua các lần render trong một list. Không có key ổn định, một thao tác chèn hoặc sắp xếp khiến React tưởng mọi element sau điểm thay đổi đều là element khác — nên nó remount component, mất focus, reset các input không kiểm soát, và chạy lại mount effect.
+
+```jsx
+// Đảo ngược list. Với key theo index, React viết lại text của từng <li> tại chỗ,
+// và state cục bộ trong mỗi row rốt cuộc bị gắn nhầm vào item khác.
+// Với key={item.id}, React chỉ đơn giản sắp xếp lại các node đang có — state và focus đi theo item.
+```
+
+Đây chính là cơ chế danh tính giống quy tắc reset state ở trên, nhưng áp dụng giữa các sibling: chính key, chứ không phải vị trí, là thứ cho React biết instance cũ nào ghép với element mới nào.
+
+## Fiber: kiến trúc bên dưới
+
+Trước React 16, reconciliation chạy đệ quy và **đồng bộ (synchronous)** — một khi bắt đầu duyệt cây thì không dừng được cho tới khi xong, có thể chặn main thread và làm rớt khung hình ở các update lớn. **Fiber** là bản viết lại để sửa điều này.
+
+Một _fiber_ là một object JavaScript đại diện cho một đơn vị công việc (unit of work) — đại khái là một instance element/component. Các fiber tạo thành một cây liên kết mà React duyệt **theo vòng lặp** thay vì qua call stack của JS. Vì trạng thái duyệt nằm trong các object đó (không nằm trên stack), React có thể **tạm dừng** giữa lúc render, trả quyền điều khiển về cho trình duyệt, rồi **tiếp tục** sau.
+
+React chia công việc thành hai phase:
+
+- **Render phase** — React dựng cây fiber mới, gọi các component và diff. Phase này **có thể bị gián đoạn (interruptible)**: React làm từng phần nhỏ, nhường chỗ cho việc ưu tiên cao hơn (như nhập liệu), và thậm chí vứt bỏ phần đang làm dở để bắt đầu lại. Vì có thể chạy nhiều lần cho một update, code trong render phase phải **thuần khiết (pure)** — không side effect, không thay đổi DOM.
+- **Commit phase** — khi cả cây đã được reconcile xong, React áp dụng các thay đổi vào DOM thật, chạy layout effect, tráo ref, v.v. Phase này **đồng bộ và không thể gián đoạn** — chạy một mạch tới hết để người dùng không bao giờ thấy UI cập nhật nửa vời.
+
+```
+state thay đổi
+   │
+   ▼
+RENDER PHASE  (có thể gián đoạn — pause / abort / restart)
+   dựng cây fiber work-in-progress, diff với cây current
+   │
+   ▼
+COMMIT PHASE  (đồng bộ — chạy tới hết)
+   thay đổi DOM, chạy effect, tráo "current" ↔ "work-in-progress"
+```
+
+<Callout variant="tip" title="Double buffering">
+  React giữ hai cây: cây <em>current</em> đang hiển thị và cây <em>work-in-progress</em> mà nó dựng
+  trong lúc render. Khi commit, nó tráo con trỏ giữa hai cây. Đó là lý do một lần render bị hủy rất
+  rẻ — cây trên màn hình chưa hề bị động đến, nên React có thể vứt cây dựng dở đi và làm lại mà
+  không gây nhấp nháy nhìn thấy được.
+</Callout>
+
+## Vì sao điều này mở đường cho concurrent features
+
+Vì render phase có thể tạm dừng và phân loại ưu tiên, React làm được những thứ bất khả thi với mô hình đồng bộ cũ:
+
+- **Giữ UI mượt trong các update lớn.** Một lần render dài có thể được cắt lát để gõ phím hay click vẫn cảm thấy tức thì — nền tảng của `useTransition` và `startTransition`.
+- **Ưu tiên việc khẩn cấp.** Một update được đánh dấu khẩn (một lần gõ phím) có thể gián đoạn một update không khẩn (lọc một danh sách khổng lồ) đang render dở.
+- **Hủy và làm lại.** Nếu state mới quan trọng hơn xuất hiện trong khi React đang render, nó có thể bỏ cây đang làm dở và bắt đầu lại với dữ liệu mới nhất — không lãng phí một lần commit.
+
+Không điều nào trong số này làm thay đổi **mô hình tư duy** bạn đã có — `UI = f(state)`, component là hàm thuần trả về cây element. Fiber là _động cơ_ khiến việc tính hàm đó có thể gián đoạn được. Bạn hiếm khi chạm trực tiếp vào fiber, nhưng biết chúng tồn tại giúp giải thích vì sao render phải thuần khiết, vì sao key cực kỳ quan trọng, và cách concurrent React giữ cho một app nặng vẫn mượt.
+
+## Tóm lại
+
+- Một component trả về cây element (Virtual DOM); reconciliation diff nó với cây trước để tính ra số thay đổi DOM tối thiểu.
+- Các heuristic: đổi type thì thay nguyên subtree (mất state); cùng type thì update tại chỗ (giữ state); list children được khớp theo `key`.
+- State sống cùng một component chừng nào nó còn ở cùng vị trí trong cây với cùng type/key. Khác vị trí, type, hay key sẽ reset nó — `key` là công tắc reset tường minh của bạn.
+- Key theo index dễ vỡ khi chèn/sắp xếp lại; hãy dùng id ổn định từ dữ liệu.
+- Fiber biểu diễn công việc thành các đơn vị gián đoạn được trên một cây duyệt theo vòng lặp: một render phase thuần khiết, dừng được, và một commit phase đồng bộ, làm một mạch — cùng nhau khiến concurrent rendering trở nên khả thi.
+
+## Tra cứu nhanh
+
+| Tình huống                       | Reconciliation làm gì                         |
+| -------------------------------- | --------------------------------------------- |
+| Type element thay đổi            | Unmount subtree cũ, mount cái mới (mất state) |
+| Cùng type, props khác            | Tái dùng node, vá prop đã đổi (giữ state)     |
+| Cùng vị trí, cùng type/key       | Giữ state của component qua lần update        |
+| Khác vị trí hoặc key mới         | Coi như element mới — remount, reset state    |
+| List children có key ổn định     | Khớp theo key, sắp xếp/chèn/xóa node          |
+| List children dùng index làm key | Khớp theo vị trí — dễ vỡ khi chèn/sắp xếp lại |
+| Render phase                     | Có thể gián đoạn, thuần khiết, dựng cây WIP   |
+| Commit phase                     | Đồng bộ, thay đổi DOM, chạy effect            |

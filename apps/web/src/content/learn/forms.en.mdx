@@ -1,0 +1,251 @@
+---
+topic: forms
+lang: en
+title: "Forms & controlled inputs"
+summary: "Controlled vs uncontrolled inputs, binding every control type, one handler for many fields, refs with defaultValue, when to pick each, and React 19 form actions."
+category: Fundamentals
+level: beginner
+order: 50
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Controlled vs uncontrolled
+
+A form input always holds a value somewhere. The question is **who owns it**: React state, or the DOM node itself.
+
+- **Controlled** — React state is the source of truth. You set `value` from state and update that state in `onChange`. The DOM only ever shows what state says.
+- **Uncontrolled** — the DOM node keeps its own value. React doesn't track keystrokes; you read the value out of the node when you need it (usually on submit) via a ref.
+
+```jsx
+// Controlled: state drives the input
+function NameField() {
+  const [name, setName] = useState("")
+  return <input value={name} onChange={(e) => setName(e.target.value)} />
+}
+```
+
+The loop is: user types → `onChange` fires → you call `setName` → component re-renders → `value` reflects the new state. Because state is the single source of truth, you can validate, format, or disable the submit button from the same value the input displays.
+
+<Callout variant="warn" title="value without onChange = read-only">
+  Passing `value` but no `onChange` forces the input to always show that value, so the user can't
+  type, and React warns about it. Either add `onChange` to keep it controlled, or use `defaultValue`
+  to make it uncontrolled. A related gotcha: `value={user.name}` where `name` can be `undefined`
+  flips the input between uncontrolled and controlled — initialize state to `""`, never `undefined`.
+</Callout>
+
+## One handler for many fields
+
+Writing a separate `useState` and handler per field gets tedious fast. Keep related fields in one state object and key off the input's `name` attribute so a single handler covers them all:
+
+```jsx
+function SignupForm() {
+  const [form, setForm] = useState({ email: "", password: "" })
+
+  function handleChange(e) {
+    const { name, value } = e.target
+    setForm((prev) => ({ ...prev, [name]: value }))
+  }
+
+  return (
+    <form>
+      <input name="email" value={form.email} onChange={handleChange} />
+      <input name="password" type="password" value={form.password} onChange={handleChange} />
+    </form>
+  )
+}
+```
+
+Two details matter: the **computed key** `[name]` lets one handler write to any field, and the **updater form** `(prev) => ...` plus spread keeps the other fields intact instead of overwriting them.
+
+<Callout variant="warn" title="Why the updater form here">
+  If two fields change in quick succession (or you batch changes), `setForm({ ...form, [name]:
+  value })` reads a possibly stale `form` snapshot and can drop the other field's edit. `setForm(prev
+  => ({ ...prev, [name]: value }))` always builds on the latest state.
+</Callout>
+
+## Binding every control type
+
+Different controls expose their value differently, so controlled bindings vary:
+
+```jsx
+function Preferences() {
+  const [subscribed, setSubscribed] = useState(false)
+  const [size, setSize] = useState("m")
+  const [plan, setPlan] = useState("free")
+  const [bio, setBio] = useState("")
+
+  return (
+    <>
+      {/* checkbox uses `checked`, not `value`, and reports e.target.checked */}
+      <input
+        type="checkbox"
+        checked={subscribed}
+        onChange={(e) => setSubscribed(e.target.checked)}
+      />
+
+      {/* radio group: same `name`, controlled by comparing `value` to state */}
+      <label>
+        <input
+          type="radio"
+          name="size"
+          value="s"
+          checked={size === "s"}
+          onChange={(e) => setSize(e.target.value)}
+        />
+        Small
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="size"
+          value="m"
+          checked={size === "m"}
+          onChange={(e) => setSize(e.target.value)}
+        />
+        Medium
+      </label>
+
+      {/* select is controlled via `value` on the <select>, not `selected` on <option> */}
+      <select value={plan} onChange={(e) => setPlan(e.target.value)}>
+        <option value="free">Free</option>
+        <option value="pro">Pro</option>
+      </select>
+
+      {/* textarea uses `value` in React, not text between the tags */}
+      <textarea value={bio} onChange={(e) => setBio(e.target.value)} />
+    </>
+  )
+}
+```
+
+Key differences from HTML:
+
+- a **checkbox** is driven by `checked` (a boolean) and reports `e.target.checked`;
+- a **radio group** shares one `name`; each input is `checked` when its `value` equals the state;
+- a **`<select>`** is controlled on the `<select>` element itself rather than putting `selected` on an option (a multi-select uses an array `value`);
+- a **`<textarea>`** takes `value` as a prop instead of text between its tags.
+
+## Uncontrolled inputs with refs
+
+Sometimes you don't need to react to every keystroke — you just want the values when the user submits. An uncontrolled input lets the DOM hold the value and you grab it with a ref. Set the initial value with `defaultValue` (not `value`), and `defaultChecked` for checkboxes/radios:
+
+```jsx
+function SearchForm() {
+  const inputRef = useRef(null)
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    console.log(inputRef.current.value)
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input ref={inputRef} defaultValue="" />
+      <button>Search</button>
+    </form>
+  )
+}
+```
+
+This is less code and avoids a re-render per keystroke, but you lose instant access to the value for live validation, conditional UI, or formatting as the user types.
+
+<Callout variant="note" title="defaultValue, defaultChecked">
+  Uncontrolled fields use `defaultValue` / `defaultChecked` for their starting value. After that,
+  the DOM owns it — changing `defaultValue` later won't update an already-rendered input.
+</Callout>
+
+You can also skip the ref entirely and read everything from `FormData` on submit — it works for both controlled and uncontrolled fields, as long as each input has a `name`:
+
+```jsx
+function ContactForm() {
+  function handleSubmit(e) {
+    e.preventDefault()
+    const data = new FormData(e.currentTarget)
+    const values = Object.fromEntries(data) // { email: "...", message: "..." }
+    console.log(values)
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input name="email" />
+      <textarea name="message" />
+      <button>Send</button>
+    </form>
+  )
+}
+```
+
+## When to choose each
+
+Reach for **controlled** when you need the value during typing: live validation, enabling/disabling submit, formatting (phone numbers, currency), syncing two inputs, or instant search. This is the default for most React forms.
+
+Reach for **uncontrolled** for simple forms where you only need values on submit, when integrating non-React widgets, or for file inputs (`<input type="file">` is always uncontrolled — its value can't be set programmatically for security reasons; read `e.target.files` in `onChange`).
+
+| Need                          | Controlled | Uncontrolled |
+| ----------------------------- | :--------: | :----------: |
+| Validate / format as you type |     ✅     |      —       |
+| Enable submit conditionally   |     ✅     |      —       |
+| Fewest re-renders             |     —      |      ✅      |
+| Read once on submit           |   works    |      ✅      |
+| File input                    |     —      |   required   |
+
+## Form libraries and React 19 actions
+
+For large forms with many fields, cross-field validation, and complex error states, hand-wiring every input gets heavy. Libraries like **React Hook Form** (mostly uncontrolled, ref-based, very few re-renders) or **Formik** handle wiring, validation, and errors for you.
+
+React 19 also adds **form actions**: pass a function to `<form action={fn}>` and React calls it with the `FormData` on submit, resets the form on success, and manages pending state. Pair it with `useActionState` to track the result/error and pending flag, and `useFormStatus` to read submission state from a nested button without prop-drilling:
+
+```jsx
+import { useActionState } from "react"
+import { useFormStatus } from "react-dom"
+
+function SubmitButton() {
+  const { pending } = useFormStatus() // reads the enclosing <form>'s state
+  return <button disabled={pending}>{pending ? "Saving…" : "Subscribe"}</button>
+}
+
+function NewsletterForm() {
+  const [state, formAction] = useActionState(
+    async (prev, formData) => {
+      const email = formData.get("email")
+      try {
+        await saveEmail(email)
+        return { ok: true, message: "Subscribed!" }
+      } catch {
+        return { ok: false, message: "Something went wrong" }
+      }
+    },
+    { ok: false, message: "" },
+  )
+
+  return (
+    <form action={formAction}>
+      <input name="email" />
+      <SubmitButton />
+      {state.message && <p>{state.message}</p>}
+    </form>
+  )
+}
+```
+
+<Callout variant="note" title="Actions are the modern default">
+  `action`, `useActionState`, and `useFormStatus` give you pending UI and error handling with much
+  less wiring than a manual `onSubmit` + `useState`. They also degrade gracefully and integrate with
+  Server Functions. Plain controlled inputs still work everywhere — actions just remove boilerplate.
+</Callout>
+
+## The mental model to keep
+
+> Controlled = React owns the value and re-renders on every change. Uncontrolled = the DOM owns it
+> and you read on demand.
+
+Quick recap:
+
+- Controlled inputs need both `value` and `onChange`; initialize state to `""`, not `undefined`.
+- One handler covers many fields via `name` + computed key `[name]` and the updater form.
+- Checkbox → `checked`; radio → `checked={value === state}`; select → `value` on `<select>`; textarea → `value` prop.
+- Uncontrolled inputs use `defaultValue`/`defaultChecked` and a ref (or `FormData`) read on submit.
+- File inputs are always uncontrolled.
+- Start controlled when you need the value as it changes; drop to uncontrolled, a library, or React 19 actions when per-keystroke re-renders buy you nothing.

@@ -1,0 +1,186 @@
+---
+topic: lists-keys
+lang: en
+title: "Rendering lists & keys"
+summary: "Turn arrays into UI with map, filter and sort, and master the key prop — the one detail that decides whether your list keeps the right state, focus, and identity."
+category: Fundamentals
+level: beginner
+order: 40
+readingTime: 11
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Turning arrays into elements
+
+There is no `for` loop in JSX. To render a list you take an array of data and `map()` each item to an element. Because `map()` returns a new array, and React knows how to render an array of elements, that array drops straight into your JSX:
+
+```jsx
+function TodoList({ todos }) {
+  return (
+    <ul>
+      {todos.map((todo) => (
+        <li key={todo.id}>{todo.text}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+The `{ }` holds a JavaScript expression, and `todos.map(...)` is just an expression that evaluates to an array of `<li>` elements. If you prefer, pull the array into a variable first — sometimes clearer for longer items:
+
+```jsx
+function TodoList({ todos }) {
+  const items = todos.map((todo) => <li key={todo.id}>{todo.text}</li>)
+  return <ul>{items}</ul>
+}
+```
+
+## Filtering and sorting
+
+Because it is all plain JavaScript, you can chain `.filter()` before `.map()` to render a subset, or sort a copy first:
+
+```jsx
+function TodoList({ todos }) {
+  const visible = todos
+    .filter((t) => !t.done) // keep only unfinished
+    .map((t) => <li key={t.id}>{t.text}</li>)
+
+  return <ul>{visible}</ul>
+}
+```
+
+<Callout variant="tip" title="Map over a copy when sorting">
+  `sort()` and `reverse()` mutate the array in place. Call `todos.slice().sort(...)` (or
+  `[...todos].sort(...)`) so you don't accidentally mutate props or state — mutating either is a
+  bug.
+</Callout>
+
+## What the key prop is for
+
+Every element produced inside a `map()` needs a `key`. A key is a string or number that uniquely identifies that item **among its siblings**. React uses keys to match elements between renders: when the list changes, the key tells React "this is the same item as before — update it" versus "this is a brand-new item — create it."
+
+```jsx
+{
+  users.map((user) => <UserRow key={user.id} user={user} />)
+}
+```
+
+Two rules make keys work:
+
+- **Stable** — the same item gets the same key on every render. Don't generate keys with `Math.random()` or `Date.now()` inside render; a new key every time means React throws away and rebuilds the element each render (losing its DOM state and focus, and hurting performance).
+- **Unique among siblings** — keys only need to be unique within the same array, not globally across the whole app. Two different lists can both use `key={1}`.
+
+The natural source of a key is a stable ID from your data — a database primary key, a UUID, a slug. If your data truly has no ID, you can generate one once when you create the item (e.g. an incrementing counter or `crypto.randomUUID()`) and store it alongside the data — not during render.
+
+<Callout variant="warn" title="One key per sibling, no duplicates">
+  Two siblings with the same key make React warn and behave unpredictably — it can't tell them
+  apart. Keys must be unique among siblings, even if the underlying data accidentally repeats a
+  value.
+</Callout>
+
+## Why array index as a key is dangerous
+
+It is tempting to write `key={index}`. It silences the warning and looks fine — until the list reorders, or you insert/delete anywhere except the end. The problem: the index describes a **position**, not an **item**. When items move, the position-to-item mapping shifts, and React matches the wrong old element to the new one.
+
+```jsx
+// 🚨 Buggy when the list can reorder, insert, or delete from the middle
+{
+  items.map((item, index) => <input key={index} defaultValue={item.label} />)
+}
+```
+
+Imagine a list `[A, B, C]` rendered with index keys `0, 1, 2`, where each row has internal state (a controlled input, an open/closed toggle, a focus). Delete `A`, and the list becomes `[B, C]` with keys `0, 1`. React sees key `0` still exists, so it **keeps the DOM and state that belonged to A** and just changes its text to B's. The result: typed text, focus, and component state get attached to the wrong item.
+
+```
+data:   [A, B, C]  ──delete A──▶  [B, C]
+index:   0  1  2                   0  1
+React keeps node-0's state but now shows B  →  A's state leaks onto B
+```
+
+The same bug appears on **insert at the front**: prepend `Z` to `[A, B, C]` and every index shifts, so React thinks every row changed its content while a brand-new row appeared at the end — the opposite of what happened. With a stable `key={item.id}`, React knows exactly which keys appeared, vanished, or stayed, and preserves each row's state correctly.
+
+<Callout variant="warn" title="Index keys are OK only when...">
+  the list is static — never reordered, filtered, or edited — and the items have no state or form
+  inputs. If any of those can change, use a real ID.
+</Callout>
+
+## Keys are not props
+
+A common surprise: `key` is consumed by React itself and is **not** passed to your component. Reading `props.key` inside the child gives `undefined`. If the child also needs that value, pass it again under a different name:
+
+```jsx
+{
+  users.map((user) => <UserRow key={user.id} id={user.id} user={user} />)
+}
+
+function UserRow({ id, user }) {
+  // props.key === undefined here — that's why we also pass id
+  return <li>{user.name}</li>
+}
+```
+
+Same goes for `ref` — it is a reserved prop, not data your component receives.
+
+## Keys on fragments and where they live
+
+The key belongs on the **outermost element returned per iteration**, not on something nested inside. If each item needs to render multiple siblings without a wrapper node, use the long form of the fragment, `<Fragment>`, which can take a key — the shorthand `<>` cannot:
+
+```jsx
+import { Fragment } from "react"
+
+{
+  questions.map((q) => (
+    <Fragment key={q.id}>
+      <dt>{q.term}</dt>
+      <dd>{q.definition}</dd>
+    </Fragment>
+  ))
+}
+```
+
+If you extract the row into its own component, the key stays at the **call site** inside the `map()`, never inside the component's own JSX:
+
+```jsx
+// ✅ key on the element returned by map
+{
+  rows.map((row) => <Row key={row.id} row={row} />)
+}
+
+// 🚨 too late — the map output still has no key
+function Row({ row }) {
+  return <li key={row.id}>{row.label}</li>
+}
+```
+
+## Keys also reset state
+
+Keys do more than order a list — they are how React decides whether a component at a given spot is "the same" instance across renders. Change a component's key and React **destroys the old instance and mounts a fresh one**, throwing away its state. This is a feature you can use on purpose.
+
+```jsx
+// Reset the form's internal state whenever the selected user changes:
+<ProfileForm key={selectedUserId} user={user} />
+```
+
+When `selectedUserId` changes, `ProfileForm` remounts — its `useState` re-initializes, drafts clear, focus resets. Without the key, React would reuse the same instance and the old draft would linger.
+
+<Callout variant="note" title="Same position = preserved, different key = reset">
+  React keeps state for a component as long as it renders in the same position with the same key. To
+  preserve state across a change, keep the key stable; to reset state deliberately, change the key.
+</Callout>
+
+## The mental model to keep
+
+> A key is the identity of an item across time. React uses it to decide what to keep, move, reset,
+> or destroy between renders.
+
+Quick recap:
+
+- Render lists by `map`-ping data to elements; `filter`/`sort` (on a copy) are just JavaScript.
+- Every mapped element needs a `key` that is **stable** and **unique among siblings**.
+- Prefer a real ID from your data; use the array index only for static, stateless lists.
+- `key` (and `ref`) are reserved — they aren't passed to your component as props.
+- Put the key on the outermost returned element; use `<Fragment key=...>` for multiple siblings.
+- Changing a component's key resets its state — handy for clearing a form on context switch.
+
+Give every list item a stable, unique identity from your data and most "my list is doing weird things" bugs — wrong inputs, lost focus, leftover state — simply disappear.

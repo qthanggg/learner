@@ -2,9 +2,12 @@
 import { NAV, SITE } from "../../consts"
 import AnimationModeToggle from "../react/AnimationModeToggle.tsx"
 import ThemeToggle from "../react/ThemeToggle.tsx"
+import LangToggle from "../react/LangToggle.tsx"
 
 const path = Astro.url.pathname
 const isActive = (href: string) => path === href || path.startsWith(href + "/")
+// The EN/VI switch only makes sense inside the knowledge base.
+const inLearn = path === "/learn" || path.startsWith("/learn/")
 ---
 
 <header
@@ -46,6 +49,7 @@ const isActive = (href: string) => path === href || path.startsWith(href + "/")
     </nav>
 
     <div class="flex items-center gap-1.5">
+      {inLearn && <LangToggle client:load />}
       <ThemeToggle client:load />
       <AnimationModeToggle client:load />
     </div>

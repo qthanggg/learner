@@ -1,0 +1,260 @@
+---
+topic: usecontext
+lang: vi
+title: "Context với useContext"
+summary: "Context xoá bỏ prop-drilling thế nào, mô hình createContext/Provider/consumer, vì sao composition đi trước, lưu ý re-render, và bộ đôi context + reducer."
+category: Hooks
+level: intermediate
+order: 80
+readingTime: 9
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Vấn đề: prop-drilling
+
+Có những dữ liệu mà nhiều component ở các tầng sâu khác nhau cần đến: theme hiện tại, user đang đăng nhập, locale. Truyền tay xuống nghĩa là phải xâu chuỗi cùng một prop qua mọi tầng ở giữa — kể cả những component chẳng bao giờ dùng đến nó:
+
+```jsx
+function App() {
+  const [user] = useState(currentUser)
+  return <Page user={user} />
+}
+
+// Page không quan tâm user, chỉ phải chuyển tiếp
+function Page({ user }) {
+  return <Sidebar user={user} />
+}
+
+function Sidebar({ user }) {
+  return <Avatar user={user} />
+}
+```
+
+Đây chính là **prop-drilling**. Nó làm phình API của các component trung gian, khiến refactor cực nhọc, và buộc chúng phụ thuộc vào dữ liệu mà chúng chỉ "mang hộ". Context cho phép một component đọc thẳng giá trị từ một component tổ tiên, bất kể có bao nhiêu tầng nằm giữa.
+
+## createContext + Provider + useContext
+
+Có ba phần. Bạn tạo một context, bọc một nhánh cây bằng `Provider` của nó, và đọc bằng `useContext` ở bất cứ đâu bên dưới:
+
+```jsx
+import { createContext, useContext, useState } from "react"
+
+// 1. Tạo — tham số là giá trị MẶC ĐỊNH
+const ThemeContext = createContext("light")
+
+function App() {
+  const [theme, setTheme] = useState("dark")
+  // 2. Provide — mọi thứ bên trong đều thấy giá trị này
+  return (
+    <ThemeContext.Provider value={theme}>
+      <Page />
+    </ThemeContext.Provider>
+  )
+}
+
+function Avatar() {
+  // 3. Consume — không cần props
+  const theme = useContext(ThemeContext)
+  return <img className={`avatar avatar--${theme}`} />
+}
+```
+
+`useContext(ThemeContext)` đọc giá trị của Provider khớp **gần nhất** nằm phía trên nó trong cây. React đi _ngược lên_ từ consumer và dừng ở Provider đầu tiên cho context đó. `Page` và mọi thứ ở giữa hoàn toàn không cần biết gì về theme.
+
+<Callout variant="note" title="Giá trị mặc định">
+  Tham số của `createContext` chỉ dùng khi một consumer *không* có Provider nào ở trên. Nó là lưới
+  an toàn (và rất tiện khi test component độc lập), chứ không phải giá trị app bạn thường đọc.
+</Callout>
+
+## Một ví dụ đầy đủ hơn
+
+Đây là một ví dụ khép kín: một theme provider mà nhiều component lồng nhau cùng đọc giá trị của nó, kể cả những cái mà `Form` chẳng biết gì. Để ý rằng `Form` chỉ truyền `children` thuần — nó không hề đụng tới `theme`:
+
+```jsx
+import { createContext, useContext, useState } from "react"
+
+const ThemeContext = createContext("light")
+
+export default function App() {
+  const [theme, setTheme] = useState("dark")
+  return (
+    <ThemeContext.Provider value={theme}>
+      <button onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}>Đổi theme</button>
+      <Form />
+    </ThemeContext.Provider>
+  )
+}
+
+function Form() {
+  // Form thuần về cấu trúc — nó không đọc cũng không chuyển tiếp theme
+  return (
+    <Panel title="Welcome">
+      <Button>Sign up</Button>
+      <Button>Log in</Button>
+    </Panel>
+  )
+}
+
+function Panel({ title, children }) {
+  const theme = useContext(ThemeContext)
+  return (
+    <section className={`panel panel--${theme}`}>
+      <h1>{title}</h1>
+      {children}
+    </section>
+  )
+}
+
+function Button({ children }) {
+  const theme = useContext(ThemeContext)
+  return <button className={`button button--${theme}`}>{children}</button>
+}
+```
+
+Bấm đổi ở trên cùng cập nhật `theme` một lần và mọi consumer bên dưới — `Panel`, cả hai `Button` — đều thích nghi theo. Không một prop nào đi xuyên qua `Form`. Đây chính là tính chất "component thích nghi với môi trường xung quanh" mà context mang lại.
+
+## Hãy thử composition trước context
+
+Context mạnh, nhưng không phải công cụ đầu tiên nên với tới. Nhiều trường hợp _trông giống_ prop-drilling lại được giải đơn giản hơn bằng cách **truyền JSX qua `children`**. Nếu `Layout` chỉ chuyển tiếp `posts` cho `<PostList posts={posts} />`, hãy đảo lại: để component sở hữu dữ liệu render danh sách và truyền nó qua `children`:
+
+```jsx
+// Thay vì drilling `posts` xuyên qua Layout...
+;<Layout>
+  <PostList posts={posts} />
+</Layout>
+
+// Layout không cần biết gì về posts cả:
+function Layout({ children }) {
+  return <main className="layout">{children}</main>
+}
+```
+
+Component ở giữa thôi đóng vai trò trạm chuyển tiếp. Chỉ dùng context khi cùng một giá trị được **nhiều** component ở **nhiều** tầng cần đến, và việc xâu chuỗi `children` tự thân nó cũng trở nên vướng víu.
+
+<Callout variant="tip" title="Thứ tự ưu tiên">
+  Truyền props → truyền JSX qua `children` → rồi mới tới context. Context xoá prop-drilling, nhưng
+  cũng khiến luồng dữ liệu kém tường minh hơn, nên hãy để dành cho những giá trị thực sự xuyên suốt.
+</Callout>
+
+## Khi nào nên dùng context — và khi nào không
+
+Context toả sáng với những giá trị **ít thay đổi, dùng toàn app** mà nhiều component cần đọc:
+
+- theme / design tokens
+- user đã xác thực và quyền hạn
+- locale / i18n
+- router hoặc túi feature-flag
+
+Nó là công cụ **sai** cho **các cập nhật tần suất cao**. Vì mọi consumer đều re-render khi giá trị đổi (nói kỹ ở phần sau), nhét state thay đổi liên tục — vị trí chuột, input form theo từng phím gõ, tiến trình animation — vào một context duy nhất có thể khiến phần lớn cây re-render mỗi lần đổi. Hãy giữ state đó cục bộ, hoặc dùng công cụ chuyên cho việc đó.
+
+<Callout variant="warn" title="Context không phải state manager">
+  Context chỉ *vận chuyển* một giá trị xuống cây — nó không có logic cập nhật, không selector, không
+  cache. Bạn vẫn là người sở hữu state (thường bằng `useState`/`useReducer`); context chỉ giao nó.
+</Callout>
+
+## Lưu ý về re-render
+
+Khi `value` của Provider đổi, **mọi** component gọi `useContext` cho context đó sẽ re-render — kể cả những cái chỉ dùng một phần giá trị. Cái bẫy kinh điển là truyền một object literal mới mỗi lần render:
+
+```jsx
+function App() {
+  const [user, setUser] = useState(null)
+  // 🚩 Object mới mỗi render → mọi consumer re-render mỗi lần App render
+  return (
+    <AuthContext.Provider value={{ user, setUser }}>
+      <Routes />
+    </AuthContext.Provider>
+  )
+}
+```
+
+Object `{ user, setUser }` là một tham chiếu hoàn toàn mới ở mỗi lần render của `App`, nên React coi giá trị context là "đã đổi" ngay cả khi `user` không đổi. Ổn định nó bằng `useMemo`:
+
+```jsx
+function App() {
+  const [user, setUser] = useState(null)
+  // ✅ Cùng một tham chiếu cho tới khi user thực sự đổi
+  const value = useMemo(() => ({ user, setUser }), [user])
+  return (
+    <AuthContext.Provider value={value}>
+      <Routes />
+    </AuthContext.Provider>
+  )
+}
+```
+
+Kỹ thuật thứ hai là **tách context**. Nếu một giá trị hiếm khi đổi (hàm `dispatch`/`setUser`) còn một giá trị khác đổi liên tục (dữ liệu `user`), hãy đặt chúng vào các context riêng để một component chỉ cần cái ổn định không bị re-render khi cái hay biến động cập nhật:
+
+```jsx
+const AuthStateContext = createContext(null) // đổi khi user đổi
+const AuthActionsContext = createContext(null) // setUser — ổn định mãi mãi
+```
+
+Một component chỉ dispatch action sẽ subscribe `AuthActionsContext` và không bao giờ re-render khi dữ liệu đổi.
+
+<Callout variant="note" title="Provider chỉ re-render consumer, không phải cả nhánh cây">
+  Đổi giá trị context sẽ re-render những component *đọc* context đó, cùng con của chúng, nhưng các
+  component ở giữa không tiêu thụ context thì không bị bản thân việc đổi context ép re-render.
+  `useMemo` và tách context là để giữ tập consumer càng nhỏ càng tốt.
+</Callout>
+
+## Context + reducer: bộ đôi kinh điển
+
+Context phân phối; nó không quản lý. Với state toàn app có logic cập nhật thật sự, hãy ghép nó với `useReducer`: reducer giữ _cách_ state đổi, context giao `state` và `dispatch` tới bất cứ nơi nào cần. Gói cả hai vào một component provider duy nhất giúp phần đấu nối nằm gọn một chỗ:
+
+```jsx
+import { createContext, useContext, useReducer } from "react"
+
+const TasksContext = createContext(null)
+const TasksDispatchContext = createContext(null)
+
+function tasksReducer(tasks, action) {
+  switch (action.type) {
+    case "added":
+      return [...tasks, { id: action.id, text: action.text, done: false }]
+    case "deleted":
+      return tasks.filter((t) => t.id !== action.id)
+    default:
+      throw new Error(`Action lạ: ${action.type}`)
+  }
+}
+
+export function TasksProvider({ children }) {
+  const [tasks, dispatch] = useReducer(tasksReducer, [])
+  return (
+    <TasksContext.Provider value={tasks}>
+      <TasksDispatchContext.Provider value={dispatch}>{children}</TasksDispatchContext.Provider>
+    </TasksContext.Provider>
+  )
+}
+
+// Hook consumer gọn gàng để component không đụng trực tiếp vào context
+export const useTasks = () => useContext(TasksContext)
+export const useTasksDispatch = () => useContext(TasksDispatchContext)
+```
+
+Giờ component nào cũng đọc `useTasks()` hoặc bắn `useTasksDispatch()({ type: "added", ... })` mà không một prop nào bị drilling. Chủ đề `useReducer` bàn về cách viết bản thân reducer.
+
+## So sánh với các thư viện state
+
+Context kết hợp `useReducer` xử lý được kha khá state "kiểu global" mà không cần dependency. Nhưng context không có **selector** sẵn — bạn không thể subscribe đúng một mẩu và bỏ qua re-render cho phần còn lại. Các thư viện như Redux, Zustand hay Jotai bổ sung đúng điều đó: subscription chi tiết, devtools, middleware và cache.
+
+|                    | Context                        | Thư viện state                   |
+| ------------------ | ------------------------------ | -------------------------------- |
+| Dependency         | có sẵn                         | bên ngoài                        |
+| Subscribe chọn lọc | không (mọi consumer re-render) | có                               |
+| Hợp với            | theme, auth, locale            | store lớn, cập nhật thường xuyên |
+
+Hãy chọn thư viện khi hành vi re-render của context trở thành vấn đề hiệu năng, hoặc khi bạn cần selector và devtools. Với đa số app, context xử lý tốt các giá trị xuyên suốt.
+
+## Tóm tắt
+
+- Context cho phép một component cung cấp một giá trị cho **toàn bộ nhánh cây bên dưới nó**, bỏ qua mọi component trung gian.
+- Ba bước: `createContext(default)`, bọc bằng `<Context.Provider value={...}>`, đọc bằng `useContext(Context)`.
+- `useContext` tìm Provider **gần nhất** ở trên; giá trị mặc định chỉ dùng khi không có Provider nào.
+- Trước context, hãy thử truyền props hoặc truyền JSX qua `children` — context đánh đổi sự tường minh lấy tiện lợi.
+- Mọi consumer re-render khi `value` đổi. Ổn định object bằng `useMemo` và **tách** state với action ra các context riêng.
+- Context vận chuyển state; nó không quản lý state. Cần logic dùng chung thì ghép với `useReducer`.
+
+> Context giải quyết bài toán _phân phối_ (đưa giá trị tới nơi cần), không phải _quản lý_ (giá trị đổi thế nào). Hãy biết bạn thực sự đang gặp bài toán nào.

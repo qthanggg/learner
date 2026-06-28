@@ -1,0 +1,108 @@
+---
+import { getCollection } from "astro:content"
+import PageLayout from "../../layouts/PageLayout.astro"
+import Section from "../../components/astro/Section.astro"
+import Reveal from "../../components/react/Reveal.tsx"
+import { ArrowRight } from "lucide-react"
+
+const all = await getCollection("learn")
+
+// Collapse the en/vi pairs into one card model per slug, sorted by curriculum order.
+const slugs = [...new Set(all.map((e) => e.data.topic))]
+const topics = slugs
+  .map((slug) => {
+    const pair = all.filter((e) => e.data.topic === slug)
+    const en = pair.find((e) => e.data.lang === "en")?.data
+    const vi = pair.find((e) => e.data.lang === "vi")?.data
+    const meta = (en ?? vi)!
+    return { slug, en, vi, ...meta }
+  })
+  .sort((a, b) => a.order - b.order)
+
+const CATEGORIES = [
+  { key: "Fundamentals", en: "Fundamentals", vi: "Nền tảng" },
+  { key: "Hooks", en: "Hooks", vi: "Hooks" },
+  { key: "Advanced", en: "Advanced", vi: "Nâng cao" },
+  { key: "Interview", en: "Interview prep", vi: "Luyện phỏng vấn" },
+] as const
+
+const LEVEL_LABEL: Record<string, string> = {
+  beginner: "Beginner",
+  intermediate: "Intermediate",
+  advanced: "Advanced",
+}
+
+const byCategory = (key: string) => topics.filter((t) => t.category === key)
+---
+
+<PageLayout
+  title="Learn React — Fundamentals to Advanced"
+  description="A bilingual (EN/VI) React knowledge base, from JSX and hooks to reconciliation, performance and interview prep."
+  path="/learn"
+>
+  <Section eyebrow="Learn">
+    <h2 class="text-foreground mb-4 text-3xl font-bold tracking-tight text-balance sm:text-4xl">
+      <span data-lang="en">React, from the ground up</span>
+      <span data-lang="vi">React, từ nền tảng tới nâng cao</span>
+    </h2>
+    <div class="max-w-2xl">
+      <p data-lang="en" class="text-muted-foreground text-lg text-pretty">
+        A structured path through React — fundamentals, hooks, the render model, performance, and a
+        focused interview question bank. Use the <strong class="text-foreground">VI / EN</strong> switch
+        in the header to read in either language.
+      </p>
+      <p data-lang="vi" class="text-muted-foreground text-lg text-pretty">
+        Lộ trình học React có hệ thống — từ nền tảng, hooks, cơ chế render, tối ưu hiệu năng đến bộ
+        câu hỏi phỏng vấn. Bấm nút <strong class="text-foreground">VI / EN</strong> trên thanh đầu trang
+        để đổi ngôn ngữ.
+      </p>
+    </div>
+  </Section>
+
+  {
+    CATEGORIES.map((cat) => {
+      const items = byCategory(cat.key)
+      if (items.length === 0) return null
+      return (
+        <Section class="pt-0">
+          <h3 class="text-foreground mb-5 text-sm font-semibold tracking-wide uppercase">
+            <span data-lang="en">{cat.en}</span>
+            <span data-lang="vi">{cat.vi}</span>
+          </h3>
+          <div class="grid gap-4 sm:grid-cols-2">
+            {items.map((t) => (
+              <Reveal client:visible>
+                <a
+                  href={`/learn/${t.slug}`}
+                  class="border-border/60 hover:border-brand-pink/40 bg-card/40 hover:bg-card/70 group flex h-full flex-col rounded-xl border p-5 transition-colors"
+                >
+                  <div class="mb-2 flex items-center gap-2 text-xs">
+                    <span class="border-border text-muted-foreground rounded-full border px-2 py-0.5">
+                      {LEVEL_LABEL[t.level]}
+                    </span>
+                    {t.readingTime && (
+                      <span class="text-muted-foreground">{t.readingTime} min</span>
+                    )}
+                  </div>
+                  <h4 class="text-foreground group-hover:text-brand-pink text-lg font-semibold transition-colors">
+                    {t.en && <span data-lang="en">{t.en.title}</span>}
+                    {t.vi && <span data-lang="vi">{t.vi.title}</span>}
+                  </h4>
+                  <p class="text-muted-foreground mt-1.5 line-clamp-3 text-sm text-pretty">
+                    {t.en && <span data-lang="en">{t.en.summary}</span>}
+                    {t.vi && <span data-lang="vi">{t.vi.summary}</span>}
+                  </p>
+                  <span class="text-brand-pink mt-4 inline-flex items-center gap-1 text-sm font-medium">
+                    <span data-lang="en">Read</span>
+                    <span data-lang="vi">Đọc bài</span>
+                    <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                  </span>
+                </a>
+              </Reveal>
+            ))}
+          </div>
+        </Section>
+      )
+    })
+  }
+</PageLayout>

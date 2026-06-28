@@ -1,0 +1,268 @@
+---
+topic: usereducer
+lang: vi
+title: "useReducer"
+summary: "Mô hình reducer, dispatch, chuyển từ useState, viết reducer sạch, tính bất biến, kết hợp với context, và cách ánh xạ sang Redux."
+category: Hooks
+level: intermediate
+order: 90
+readingTime: 9
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Mô hình reducer
+
+`useReducer` là một lựa chọn thay thế cho `useState` để quản lý state. Thay vì gọi setter với giá trị kế tiếp, bạn **dispatch một action** mô tả điều vừa xảy ra, và một hàm **reducer** thuần tính ra state kế tiếp:
+
+```js
+// (state, action) => newState
+function reducer(state, action) {
+  switch (action.type) {
+    case "increment":
+      return { count: state.count + 1 }
+    case "decrement":
+      return { count: state.count - 1 }
+    case "set":
+      return { count: action.value }
+    default:
+      throw new Error(`Action lạ: ${action.type}`)
+  }
+}
+```
+
+Reducer là một hàm thuần: cùng `(state, action)` vào, cùng `newState` ra, không side effect. Chính sự thuần khiết đó khiến logic dễ test và dễ suy luận — bạn có thể gọi `reducer(state, action)` trong unit test mà không cần render gì cả.
+
+<Callout variant="note" title="Vì sao gọi là reducer?">
+  Tên này đến từ phương thức `reduce` của mảng: nó duyệt một danh sách, mang theo một accumulator và
+  gập từng phần tử vào đó. Reducer trong React làm điều tương tự với các action theo thời gian — nó
+  gập từng action được dispatch vào state đang chạy. Cùng dạng `(accumulator, item) => accumulator`.
+</Callout>
+
+## useState vs. dispatch
+
+Bạn gắn reducer vào component bằng hook `useReducer`. Nó trả về state hiện tại và một hàm `dispatch`:
+
+```jsx
+import { useReducer } from "react"
+
+function Counter() {
+  const [state, dispatch] = useReducer(reducer, { count: 0 })
+
+  return (
+    <>
+      <span>{state.count}</span>
+      <button onClick={() => dispatch({ type: "increment" })}>+</button>
+      <button onClick={() => dispatch({ type: "set", value: 0 })}>reset</button>
+    </>
+  )
+}
+```
+
+`dispatch({ type: "increment" })` không đổi state trực tiếp — nó trao action cho React, React gọi reducer của bạn với state hiện tại rồi lưu kết quả. Component re-render với state mới, y hệt `useState`.
+
+<Callout variant="note" title="Tham số thứ hai là state khởi tạo">
+  `useReducer(reducer, initialState)` nhận thẳng state khởi tạo. Còn có dạng lazy,
+  `useReducer(reducer, initialArg, init)`, trong đó `init(initialArg)` tính một lần — tiện cho khởi
+  tạo tốn kém.
+</Callout>
+
+## Chuyển từ useState
+
+Cách rõ nhất để cảm nhận khác biệt là chuyển đổi một component. Đây là một danh sách task nhỏ dùng `useState` — ba handler, mỗi cái tự xoay xở với mảng:
+
+```jsx
+function TaskApp() {
+  const [tasks, setTasks] = useState(initialTasks)
+
+  const handleAdd = (text) => setTasks([...tasks, { id: nextId++, text, done: false }])
+
+  const handleChange = (task) => setTasks(tasks.map((t) => (t.id === task.id ? task : t)))
+
+  const handleDelete = (id) => setTasks(tasks.filter((t) => t.id !== id))
+  // ...các handler được truyền xuống làm props
+}
+```
+
+Việc chuyển đổi gồm ba bước máy móc:
+
+1. **Thay các lời gọi setter bằng `dispatch`.** Mỗi handler giờ mô tả _điều đã xảy ra_ dưới dạng action, thay vì tính state kế tiếp ngay tại chỗ.
+2. **Viết reducer** — dồn mọi nhánh "state đổi thế nào" vào một hàm `(state, action)` duy nhất.
+3. **Đổi `useState` thành `useReducer`.**
+
+```jsx
+function TaskApp() {
+  const [tasks, dispatch] = useReducer(tasksReducer, initialTasks)
+
+  const handleAdd = (text) => dispatch({ type: "added", id: nextId++, text })
+  const handleChange = (task) => dispatch({ type: "changed", task })
+  const handleDelete = (id) => dispatch({ type: "deleted", id })
+  // ...handler vẫn được truyền xuống, nhưng giờ chỉ một dòng
+}
+
+function tasksReducer(tasks, action) {
+  switch (action.type) {
+    case "added":
+      return [...tasks, { id: action.id, text: action.text, done: false }]
+    case "changed":
+      return tasks.map((t) => (t.id === action.task.id ? action.task : t))
+    case "deleted":
+      return tasks.filter((t) => t.id !== action.id)
+    default:
+      throw new Error(`Action lạ: ${action.type}`)
+  }
+}
+```
+
+Component giờ đọc như một danh sách _ý định_; còn reducer giữ toàn bộ _cơ chế_ ở một chỗ có thể test được.
+
+## Khi nào nên chọn useReducer thay vì useState
+
+Cả hai đều ổn; hãy chọn `useReducer` khi:
+
+- **State phức tạp hoặc liên quan nhau.** Nhiều field cùng thay đổi (một form, một wizard, một lần fetch với `data`/`loading`/`error`) nằm gọn trong một object cập nhật bởi một reducer thì sạch hơn là năm lời gọi `useState` riêng lẻ.
+- **State kế tiếp phụ thuộc state trước** theo cách không tầm thường. Reducer nhận state mới nhất làm tham số đầu, nên logic chuyển trạng thái được tập trung và chính xác.
+- **Có nhiều action.** Khi một component có rất nhiều cách cập nhật khác nhau — thêm, xoá, toggle, sắp lại, reset — gom chúng thành các action type giữ logic cập nhật ở một chỗ dễ đọc thay vì rải rác khắp các handler.
+- **Bạn muốn debug các bước chuyển state.** Vì mọi thay đổi đều đi qua một hàm, bạn có thể log mọi action và state kết quả ở đúng một nơi.
+
+<Callout variant="tip" title="Quy tắc nhanh">
+  Các giá trị độc lập, đơn giản → `useState`. Một cụm field liên quan với nhiều đường cập nhật →
+  `useReducer`. Bạn có thể dùng cả hai trong cùng một component.
+</Callout>
+
+## Tính bất biến trong reducer
+
+Reducer phải **trả về một object state mới** chứ không sửa trực tiếp object cũ. React so sánh tham chiếu để quyết định có re-render hay không; sửa tại chỗ giữ nguyên tham chiếu và UI sẽ không cập nhật:
+
+```js
+// 🚩 Mutation — cùng tham chiếu, React có thể bỏ qua re-render
+case "toggled":
+  state.todos[i].done = true
+  return state
+
+// ✅ Object mới xuống tới tận field thay đổi
+case "toggled":
+  return {
+    ...state,
+    todos: state.todos.map((t) => (t.id === action.id ? { ...t, done: !t.done } : t)),
+  }
+```
+
+Đây vẫn là quy tắc bất biến như `useState`, chỉ gom vào một hàm. (Công cụ như Immer cho phép viết code "mutating" nhưng tạo ra kết quả bất biến, nếu việc spread trở nên rườm rà.)
+
+## Viết reducer sạch
+
+Vài thói quen giúp reducer dễ đọc khi nó lớn dần:
+
+- **Đặt tên action theo điều đã xảy ra, không phải việc cần làm.** `"added"`, `"deleted"`, `"changed"` mô tả ý định của người dùng; `"setTasks"` chỉ phơi lại setter và vứt bỏ toàn bộ lợi ích. Reducer quyết định mỗi sự kiện _có nghĩa gì_ với state.
+- **Giữ reducer thuần.** Không `fetch`, không timer, không mutation, không đọc đồng hồ — cùng input, cùng output, mọi lúc. Side effect thuộc về event handler hoặc effect, không phải reducer.
+- **Một action có thể cập nhật nhiều field.** Hãy ưu tiên một action giàu thông tin (`"reviewed"`) cập nhật mọi thứ vốn đổi cùng nhau về mặt logic, thay vì bắn ba dispatch riêng mà UI phải tự đồng bộ.
+
+```js
+// 🚩 Action mô tả một thao tác — rò "cách làm" vào trong action
+dispatch({ type: "setTasks", tasks: [...tasks, newTask] })
+
+// ✅ Action mô tả một sự kiện — reducer sở hữu "cách làm"
+dispatch({ type: "added", id, text })
+```
+
+<Callout variant="warn" title="Để side effect ra ngoài reducer">
+  Reducer có thể chạy hơn một lần mỗi dispatch ở môi trường development (Strict Mode gọi nó hai lần để
+  giúp bạn bắt lỗi không thuần khiết). Nếu nó fetch, mutate hay log, các effect đó bắn hai lần và hành
+  vi trở nên khó hiểu. Hãy giữ nó là một `(state, action) => newState` thuần và làm effect ở nơi khác.
+</Callout>
+
+## Reducer như một state machine
+
+Reducer toả sáng khi state có vài _pha_ rõ ràng chỉ được phép chuyển qua lại theo những cách nhất định — một lần fetch là ví dụ kinh điển. Mô hình hoá `idle → loading → success | error` bằng reducer giữ cho các tổ hợp bất khả thi (như `loading: true` đi kèm `error`) nằm ngoài tầm với:
+
+```js
+function fetchReducer(state, action) {
+  switch (action.type) {
+    case "started":
+      return { status: "loading", data: null, error: null }
+    case "succeeded":
+      return { status: "success", data: action.data, error: null }
+    case "failed":
+      return { status: "error", data: null, error: action.error }
+    default:
+      throw new Error(`Action lạ: ${action.type}`)
+  }
+}
+
+function UserProfile({ userId }) {
+  const [state, dispatch] = useReducer(fetchReducer, {
+    status: "idle",
+    data: null,
+    error: null,
+  })
+
+  useEffect(() => {
+    let active = true
+    dispatch({ type: "started" })
+    fetch(`/api/users/${userId}`)
+      .then((r) => r.json())
+      .then((data) => active && dispatch({ type: "succeeded", data }))
+      .catch((error) => active && dispatch({ type: "failed", error }))
+    return () => {
+      active = false
+    }
+  }, [userId])
+
+  if (state.status === "loading") return <Spinner />
+  if (state.status === "error") return <Error message={state.error.message} />
+  return <Profile user={state.data} />
+}
+```
+
+Bản thân `fetch` — một side effect — vẫn nằm trong `useEffect`; reducer chỉ gập các sự kiện kết quả vào state. Một chuỗi `status` duy nhất điều khiển việc render, nên ba nhánh loại trừ lẫn nhau theo thiết kế.
+
+<Callout variant="tip" title="Mô hình hoá pha, không phải boolean">
+  Thay các cờ `isLoading` / `hasError` / `isEmpty` rải rác bằng một enum `status` duy nhất là một
+  thắng lợi phổ biến. Các boolean có thể mâu thuẫn nhau; một field state duy nhất không thể ở hai
+  pha cùng lúc.
+</Callout>
+
+## Kết hợp với context cho state toàn app
+
+`useReducer` + context là mô hình kinh điển không cần dependency cho state dùng chung. Reducer giữ logic, context phân phối `state` và `dispatch`, và component nào cũng dispatch được action mà không cần prop-drilling:
+
+```jsx
+const TasksContext = createContext(null)
+const TasksDispatchContext = createContext(null)
+
+function TasksProvider({ children }) {
+  const [tasks, dispatch] = useReducer(tasksReducer, [])
+  return (
+    <TasksContext.Provider value={tasks}>
+      <TasksDispatchContext.Provider value={dispatch}>{children}</TasksDispatchContext.Provider>
+    </TasksContext.Provider>
+  )
+}
+```
+
+Tách state và dispatch thành hai context là có chủ đích: `dispatch` **ổn định suốt vòng đời component** (React đảm bảo danh tính của nó không bao giờ đổi), nên những component chỉ dispatch sẽ không re-render khi dữ liệu đổi. Một nút `AddTask` nằm sâu chỉ cần đọc `useContext(TasksDispatchContext)` rồi bắn `dispatch({ type: "added", ... })` — không props, không drilling.
+
+## Cách nó ánh xạ sang Redux
+
+Nếu thấy giống Redux thì không phải trùng hợp — chính Redux phổ biến hoá mô hình này. Các ý cốt lõi tương ứng nhau:
+
+| Redux                     | useReducer + context      |
+| ------------------------- | ------------------------- |
+| store                     | state do `useReducer` giữ |
+| `dispatch(action)`        | `dispatch(action)`        |
+| reducer `(state, action)` | cùng chữ ký reducer       |
+| `<Provider store>`        | context Provider          |
+
+Khác biệt nằm ở quy mô. `useReducer` là state cục bộ của React, không middleware, không selector, không devtools, không có một store global duy nhất. Redux (hoặc Zustand/Jotai) bổ sung những thứ đó cho app lớn. Về mặt khái niệm, học `useReducer` là bạn đã nắm 80% cách tư duy của Redux — vì thế nó hay là cây cầu nối giữa hai thứ trong phỏng vấn.
+
+## Tóm tắt
+
+- Reducer là một hàm thuần `(state, action) => newState`; bạn kích hoạt nó bằng `dispatch(action)`.
+- `useReducer(reducer, initialState)` trả về `[state, dispatch]`; `dispatch` ổn định qua các render.
+- Chuyển từ `useState` qua ba bước: dispatch action, viết reducer, đổi hook.
+- Hãy chọn nó khi state phức tạp, các chuyển trạng phụ thuộc state trước, hoặc có nhiều đường cập nhật.
+- Trả về object mới — không bao giờ mutate — và giữ reducer không có side effect.
+- Đặt tên action theo sự kiện, và ghép reducer với context để chia sẻ state toàn app.
+
+> Một action là _mô tả điều đã xảy ra_, không phải lệnh mutate. Reducer quyết định điều đó có nghĩa gì với state. Sự tách bạch ấy chính là toàn bộ tinh thần.

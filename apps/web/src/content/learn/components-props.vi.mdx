@@ -1,0 +1,247 @@
+---
+topic: components-props
+lang: vi
+title: "Component & props"
+summary: "Cách chia UI thành các function component, truyền props chỉ-đọc, đặt mặc định, kết hợp bằng children, spread props, nhận diện prop drilling, và khai báo kiểu props với TypeScript."
+category: Fundamentals
+level: beginner
+order: 20
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Component chỉ là một hàm
+
+Component trong React là một hàm JavaScript nhận đúng một tham số — `props` — và trả về element. Tên hàm phải **viết hoa** chữ cái đầu để React gọi nó, thay vì coi nó như thẻ HTML.
+
+```jsx
+function Avatar(props) {
+  return <img src={props.url} alt={props.name} />
+}
+
+// Cách dùng
+;<Avatar url="/me.png" name="Thang" />
+```
+
+Thực tế bạn gần như luôn **destructure** props ngay ở danh sách tham số. Nó gọn hơn và nói rõ component cần những gì:
+
+```jsx
+function Avatar({ url, name }) {
+  return <img src={url} alt={name} />
+}
+```
+
+Toàn bộ mô hình chỉ có vậy: dữ liệu chảy _vào_ qua props, JSX chảy _ra_. Một component mà bạn mô tả được trong một câu ("hiển thị một avatar") là một component dễ tái sử dụng và dễ test.
+
+<Callout variant="note" title="props luôn là một object duy nhất">
+  React truyền một object duy nhất cho component của bạn — dù có mười thuộc tính, bạn vẫn nhận về
+  một `props`. Destructure trong chữ ký hàm chỉ là mở gói object đó ra; nó không đổi cách dữ liệu
+  được đưa vào.
+</Callout>
+
+## Props có thể là bất kỳ giá trị JavaScript nào
+
+Props không chỉ giới hạn ở chuỗi. Bạn truyền được number, boolean, object, array, và cả hàm — cú pháp giúp phân biệt hai loại. Chuỗi dùng dấu nháy; mọi thứ khác đặt trong ngoặc nhọn:
+
+```jsx
+<Avatar
+  name="Katsuko" // chuỗi
+  size={100} // số
+  isActive // viết tắt của isActive={true}
+  person={{ id: 1, role: "admin" }} // object (chú ý ngoặc nhọn kép)
+  onSelect={handleSelect} // tham chiếu hàm, không phải lời gọi
+/>
+```
+
+Một thuộc tính trơ như `isActive` là cách viết tắt của `isActive={true}`. Còn `onSelect={handleSelect}` truyền chính bản thân hàm — viết `onSelect={handleSelect()}` sẽ _gọi_ nó ngay lúc render và truyền giá trị trả về thay vì hàm.
+
+## Props là chỉ-đọc
+
+Props là dữ liệu đầu vào do component cha truyền xuống. Nguyên tắc vàng: **component không bao giờ được sửa props của chính nó.** Hãy xem object props như đã bị đóng băng.
+
+```jsx
+function Total({ price, qty }) {
+  // ❌ tuyệt đối không làm vậy
+  // price = price * qty
+
+  // ✅ thay vào đó hãy tính ra giá trị mới
+  const total = price * qty
+  return <span>{total}</span>
+}
+```
+
+Vì sao quan trọng: mô hình tư duy của React là `UI = f(props, state)`. Nếu một hàm lén ghi đè dữ liệu đầu vào, cùng một props có thể cho ra kết quả khác nhau, và việc re-render trở nên khó đoán. Đầu vào "thuần" thì UI mới dễ đoán. Khi cần dữ liệu _thay đổi theo thời gian_, đó là `state` chứ không phải props — sẽ nói ở chủ đề riêng.
+
+<Callout variant="warn" title="Props chảy xuống, không chảy lên">
+  Component con không thể tự sửa dữ liệu của component cha. Muốn gửi thông tin ngược lên, component
+  cha truyền xuống một callback (ví dụ `onChange`) để con gọi. Dữ liệu đi xuống, sự kiện đi lên.
+</Callout>
+
+<Callout variant="note" title="Props là một ảnh chụp tại một thời điểm">
+  Component nhận một bộ props mới ở mỗi lần render. Props của một lần render không bao giờ thay đổi
+  — muốn hiển thị dữ liệu khác, component cha render lại với props mới và React gọi lại hàm của bạn.
+</Callout>
+
+## Giá trị mặc định
+
+Khi một prop có thể bị bỏ trống, hãy cho nó giá trị mặc định ngay trong phần destructuring. Đây là JavaScript thuần và thay thế cho `defaultProps` cũ (đã bị loại bỏ cho function component từ React 19).
+
+```jsx
+function Button({ variant = "primary", disabled = false, children }) {
+  return (
+    <button className={`btn btn-${variant}`} disabled={disabled}>
+      {children}
+    </button>
+  )
+}
+
+// <Button>Save</Button> → variant là "primary"
+```
+
+Mặc định chỉ có tác dụng khi prop là `undefined`. Truyền `null` thì vẫn giữ `null`, và truyền `size={0}` thì vẫn giữ `0`, nên hãy cân nhắc kỹ bạn đang gửi loại giá trị "rỗng" nào.
+
+## Prop children
+
+Mọi thứ bạn đặt lồng giữa hai thẻ của component sẽ đến dưới dạng một prop đặc biệt tên `children`. Đây chính là thứ giúp component ghép nối được như HTML. Hãy hình dung một component có `children` như có sẵn một "lỗ hổng" mà component cha sẽ lấp đầy bằng JSX tuỳ ý.
+
+```jsx
+function Card({ children }) {
+  return <div className="card">{children}</div>
+}
+
+// Dùng như một lớp bao quanh nội dung tuỳ ý
+;<Card>
+  <h2>Title</h2>
+  <p>Body text</p>
+</Card>
+```
+
+`children` kết hợp tự nhiên với các prop khác — một lớp bao có thể vừa nhận cấu hình riêng vừa nhận nội dung cần bao:
+
+```jsx
+function Card({ title, children }) {
+  return (
+    <div className="card">
+      <h1>{title}</h1>
+      {children}
+    </div>
+  )
+}
+
+;<Card title="About">
+  <p>Aklilu Lemma đã tìm ra một phương pháp điều trị tự nhiên cho bệnh sán máng.</p>
+</Card>
+```
+
+`children` có thể là chuỗi, một element, một mảng element, hay thậm chí một hàm — React render bất cứ thứ gì bạn đưa vào. Điều này mở ra **composition over configuration** (ưu tiên kết hợp hơn cấu hình): thay vì thêm vô số prop boolean như `hasHeader`, `hasFooter`, `showIcon`, bạn để nơi gọi truyền vào đúng markup họ muốn.
+
+```jsx
+// ⚠️ cấu hình: mỗi biến thể lại cần thêm một prop mới
+<Dialog title="Hi" hasCloseButton showFooter footerText="OK" />
+
+// ✅ kết hợp: nơi gọi tự cung cấp các mảnh ghép
+<Dialog>
+  <Dialog.Header>Hi</Dialog.Header>
+  <Dialog.Body>...</Dialog.Body>
+</Dialog>
+```
+
+Composition giữ cho component nhỏ và linh hoạt: component cha quyết định nội dung, component con quyết định cấu trúc. Bạn sẽ dùng `children` liên tục với các lớp bao trực quan: panel, grid, layout, modal.
+
+## Spread props
+
+Khi một component chỉ chuyển tiếp phần lớn props của nó xuống một element duy nhất, toán tử spread giúp bạn khỏi phải liệt kê từng cái. Cách này phổ biến ở các lớp bao mỏng quanh element gốc:
+
+```jsx
+function TextInput({ label, ...rest }) {
+  return (
+    <label>
+      {label}
+      <input {...rest} /> {/* placeholder, value, onChange… đều được chuyển tiếp */}
+    </label>
+  )
+}
+
+// <TextInput label="Email" type="email" value={email} onChange={onChange} />
+```
+
+`...rest` gom mọi prop mà bạn _không_ destructure theo tên, và `{...rest}` chuyển tiếp chúng lên `<input>`. Thứ tự rất quan trọng: một prop viết sau spread sẽ ghi đè prop từ spread, nên `<input {...rest} type="text" />` luôn thắng với `type="text"`.
+
+<Callout variant="warn" title="Spread có chừng mực">
+  Chuyển tiếp `{...props}` một cách mù quáng sẽ che giấu việc component thực sự nhận những thuộc
+  tính nào, và có thể làm rò rỉ những prop bất ngờ lên DOM. Chỉ dùng ở các lớp bao thật sự, đừng
+  dùng như một lối tắt để khỏi đặt tên.
+</Callout>
+
+## Prop drilling — gọi đúng tên vấn đề
+
+Khi một component nằm sâu cần dữ liệu, ta thường truyền nó qua từng tầng trung gian, kể cả những component không hề dùng tới. Đó là **prop drilling**:
+
+```jsx
+<App user={user}>
+  <Layout user={user}>
+    <Sidebar user={user}>
+      <Profile user={user} /> {/* cuối cùng mới dùng ở đây */}
+```
+
+Nó chạy được, nhưng rườm rà và làm các component ở giữa bị dính những prop mà chúng chỉ chuyển tiếp. Drilling một chút thì ổn; drilling tràn lan là dấu hiệu nên dùng đến **Context** (có chủ đề riêng), cho phép một component con ở sâu đọc dữ liệu dùng chung mà không cần mọi component cha chuyền tay.
+
+<Callout variant="tip" title="Đừng vội xử lý quá sớm">
+  Truyền một prop qua một hai tầng là hoàn toàn bình thường. Chỉ nên dùng Context khi cùng một giá
+  trị bị xâu chuỗi qua nhiều tầng hoặc cần ở nhiều nhánh khác nhau.
+</Callout>
+
+## Khai báo kiểu props với TypeScript
+
+Trong TypeScript, hãy mô tả hình dạng của props bằng `type` (hoặc `interface`) rồi gán kiểu cho tham số. Bạn sẽ có gợi ý tự động và lỗi ngay lúc biên dịch nếu nơi gọi quên một prop bắt buộc.
+
+```tsx
+type ButtonProps = {
+  variant?: "primary" | "secondary" // tuỳ chọn nhờ dấu ?
+  disabled?: boolean
+  onClick: () => void // bắt buộc
+  children: React.ReactNode // bất cứ thứ gì render được
+}
+
+function Button({ variant = "primary", disabled, onClick, children }: ButtonProps) {
+  return (
+    <button className={`btn btn-${variant}`} disabled={disabled} onClick={onClick}>
+      {children}
+    </button>
+  )
+}
+```
+
+Vài kiểu thực dụng đáng thuộc lòng: `React.ReactNode` cho bất cứ thứ gì render được (kiểu thường dùng cho `children`), `React.ChangeEvent<HTMLInputElement>` cho handler của input, và `() => void` cho callback đơn giản. Hãy ưu tiên một `type` có tên thay vì khai báo inline — vừa tái sử dụng được vừa dễ đọc hơn.
+
+Để kế thừa toàn bộ thuộc tính gốc của một element (giúp nơi gọi truyền được `type`, `aria-*`, v.v.) hãy mở rộng kiểu props của nó. Cách này ăn khớp hoàn hảo với mẫu spread ở trên:
+
+```tsx
+type InputProps = React.ComponentProps<"input"> & { label: string }
+
+function TextInput({ label, ...rest }: InputProps) {
+  return (
+    <label>
+      {label}
+      <input {...rest} />
+    </label>
+  )
+}
+```
+
+## Điều cần nhớ
+
+> Component là hàm theo props của nó. Giữ props chỉ-đọc, đặt mặc định khi destructure, kết hợp bằng `children`, spread để chuyển tiếp, và khai báo kiểu cho hình dạng props.
+
+Nắm chắc phần này thì mọi thứ còn lại của React — state, context, hooks — sẽ lắp lên trên một lớp component sạch sẽ và dễ đoán.
+
+## Tóm tắt
+
+- Component là một hàm viết hoa, nhận một object `props` và trả về JSX.
+- Props có thể là bất kỳ giá trị nào — chuỗi trong dấu nháy, mọi thứ khác trong `{ }` — và chúng **chỉ-đọc**; gửi sự kiện ngược lên qua callback prop.
+- Đặt mặc định ngay khi destructure (`{ variant = "primary" }`); mặc định chỉ áp dụng cho `undefined`.
+- `children` là phần JSX lồng giữa hai thẻ — ưu tiên composition hơn một đống prop boolean cấu hình.
+- `{...rest}` chuyển tiếp phần props còn lại lên một element; dùng ở lớp bao thật sự, để ý thứ tự và rò rỉ DOM.
+- Xâu một prop qua nhiều tầng không dùng tới là **prop drilling** — tín hiệu để cân nhắc **Context**.
+- Trong TypeScript, khai báo props bằng một `type` có tên; dùng `React.ReactNode` cho `children` và `React.ComponentProps<"tag">` để kế thừa thuộc tính gốc.

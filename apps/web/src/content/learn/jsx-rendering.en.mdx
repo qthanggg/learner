@@ -1,0 +1,215 @@
+---
+topic: jsx-rendering
+lang: en
+title: "JSX & how React renders"
+summary: "What JSX compiles to, the rules for writing it, how to embed expressions, and the render → commit → re-render model that makes everything else click."
+category: Fundamentals
+level: beginner
+order: 10
+readingTime: 11
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## JSX is just function calls
+
+JSX looks like HTML, but it is syntax sugar. The compiler (Babel / the TypeScript / SWC transform) turns every tag into a plain JavaScript call:
+
+```jsx
+const el = <h1 className="title">Hello</h1>
+// compiles to →
+const el = jsx("h1", { className: "title", children: "Hello" })
+```
+
+That call doesn't create a DOM node. It returns a **plain object** — a _React element_ — describing what you want on screen:
+
+```js
+{ type: "h1", props: { className: "title", children: "Hello" } }
+```
+
+Because JSX is an expression, you can store it in a variable, return it from a function, or build it inside `map()`. This is the single most important idea: **your component is a function that returns a description of the UI, not the UI itself.**
+
+<Callout variant="note" title="JSX and React are separate">
+  JSX is a syntax extension; React is a library. They're often used together, but JSX has no opinion
+  about React — it just describes a tree. React is what _reads_ that description and updates the
+  DOM.
+</Callout>
+
+## The three rules of JSX
+
+JSX is stricter than HTML. There are only three rules to remember.
+
+**1. Return a single root element.** A component returns one element. To return several, wrap them in a parent tag or an empty fragment `<>…</>`:
+
+```jsx
+function Profile() {
+  return (
+    <>
+      <h1>Hedy Lamarr</h1>
+      <img src="/hedy.jpg" alt="Hedy Lamarr" />
+    </>
+  )
+}
+```
+
+A fragment groups siblings without adding an extra node to the DOM. Why one root at all? Because JSX compiles to objects, and a function can only return one object — returning two adjacent tags is like returning two values without an array.
+
+**2. Close every tag.** HTML is forgiving about `<img>` or `<li>` without a closing tag; JSX is not. Self-closing tags need the slash: `<img />`, `<br />`.
+
+**3. camelCase most attributes.** JSX attribute names become keys on a JavaScript object, so most of them are camelCase: `strokeWidth`, `tabIndex`, `onClick`. Two names are special because they're reserved words in JavaScript:
+
+```jsx
+<label htmlFor="email" className="field">
+  Email
+</label>
+```
+
+<Callout variant="tip" title="Why className, not class">
+  `class` is a reserved word in JavaScript, and JSX is JavaScript — so the attribute is `className`.
+  For the same reason the `for` attribute on a `<label>` becomes `htmlFor`. A converter like
+  transform.tools/html-to-jsx handles bulk HTML for you.
+</Callout>
+
+## JavaScript in JSX with curly braces
+
+Curly braces `{ }` "open a window" back into JavaScript from inside markup. Anything between them is an expression that gets evaluated and inserted.
+
+```jsx
+function Greeting({ name }) {
+  const today = new Date().toLocaleDateString()
+  return (
+    <p>
+      Hello, {name}! Today is {today}.
+    </p>
+  )
+}
+```
+
+You can use braces in exactly two places: as **text** directly inside a tag (`<h1>{name}</h1>`), and as an **attribute value** right after the `=` sign (`src={avatar}`). Note that `src="{avatar}"` with quotes passes the literal string `"{avatar}"` — drop the quotes to pass the variable.
+
+A common point of confusion is the "double curly" you'll see with inline styles. That's not special syntax — it's an object `{ }` _inside_ the expression braces `{ }`:
+
+```jsx
+<div style={{ color: "pink", backgroundColor: "black" }}>Themed</div>
+```
+
+### Conditionals
+
+Because braces hold expressions (not statements), you use expression-friendly operators. `if` won't fit, but `&&`, the ternary, and a variable computed above the `return` all work:
+
+```jsx
+function Item({ name, isPacked }) {
+  return (
+    <li className="item">
+      {name} {isPacked && "✅"}
+    </li>
+  )
+}
+
+// Ternary when you need an "else"
+;<span>{isLoggedIn ? <Dashboard /> : <LoginButton />}</span>
+```
+
+<Callout variant="warn" title="Watch out for 0 with &&">
+  `{count && <Badge />}` renders a stray `0` when `count` is `0`, because `&&` returns the falsy
+  left side and React _does_ render the number zero. Force a boolean: `{count > 0 && <Badge />}`.
+</Callout>
+
+### Lists
+
+Render arrays by mapping each item to an element. Each sibling needs a stable `key` so React can track items across re-renders:
+
+```jsx
+function TodoList({ todos }) {
+  return (
+    <ul>
+      {todos.map((todo) => (
+        <li key={todo.id}>{todo.text}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+<Callout variant="warn" title="Don't use the array index as a key">
+  Indexes look convenient but break when the list reorders, inserts, or deletes — React reuses the
+  wrong DOM and state. Use a stable id from your data. Keys must be unique among siblings only.
+</Callout>
+
+## Components return elements
+
+A component is a function whose name starts with a capital letter and returns React elements:
+
+```jsx
+function Greeting({ name }) {
+  return <p>Hello, {name}</p>
+}
+
+// Used as <Greeting name="Thang" />, which compiles to jsx(Greeting, { name: "Thang" })
+```
+
+The capital letter matters: `<greeting />` would be treated as a literal HTML tag, while `<Greeting />` tells React to _call your function_. Anything inside `{ }` is a JavaScript expression that gets evaluated and inserted.
+
+## Render, then commit
+
+When React renders, it happens in two conceptual steps:
+
+1. **Render phase** — React calls your component functions to get the new tree of elements. This is pure: no DOM is touched yet.
+2. **Commit phase** — React compares the new tree to the previous one (diffing) and applies the _minimum_ set of real DOM changes.
+
+```
+state changes ──▶ React calls your component ──▶ new element tree
+                                                      │
+                                          diff vs. previous tree
+                                                      │
+                                          patch only what changed (DOM)
+```
+
+There's a third trigger that comes before either phase: the **initial render**, which happens once when your app first mounts. After that, every update follows the same trigger → render → commit cycle.
+
+A component re-runs ("re-renders") when:
+
+- its **state** changes (`useState` / `useReducer`),
+- its **props** change because a parent re-rendered, or
+- its **context** value changes.
+
+<Callout variant="warn" title="Re-render ≠ DOM update">
+  A re-render means React *called your function again*. It does not mean the DOM changed. If the
+  output is identical, the commit phase patches nothing. Cheap function calls, expensive DOM — that
+  split is why React feels fast.
+</Callout>
+
+### Each render is a snapshot
+
+When React calls your component, the props, state, and event handlers it returns belong to _that_ render. They're a snapshot frozen in time — a later state change doesn't reach back and mutate the variables of an earlier render. This is why state updates feel "delayed": you're always reading the snapshot you rendered with, and the new value only shows up on the _next_ render.
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0)
+  // On this render, `count` is a fixed number. Clicking schedules a new render
+  // with count + 1; it does not change `count` in the current snapshot.
+  return <button onClick={() => setCount(count + 1)}>{count}</button>
+}
+```
+
+## More rendering rules you'll hit on day one
+
+- **`false`, `null`, and `undefined` render nothing** — handy for conditionals: `{isOpen && <Menu />}`.
+- **`true` and booleans render nothing either**, but numbers and strings _do_ render (remember the `0` pitfall above).
+- **Don't render objects.** `{user}` throws "Objects are not valid as a React child"; `{user.name}` works.
+- **JSX is immutable.** You never mutate an element after creating it — you describe the next state and let React reconcile.
+- **Comments inside JSX** go in braces: `{/* like this */}`.
+
+## The mental model to keep
+
+> UI = f(state). You give React a function of your current state; it figures out the DOM.
+
+Everything else in React — hooks, keys, memoization, Suspense — is built to make that equation fast and predictable. Hold onto it as you go deeper.
+
+## Recap
+
+- JSX compiles to `jsx(type, props)` calls that return plain element objects — descriptions, not DOM.
+- Three rules: one root (use a fragment to group), close every tag, camelCase attributes (`className`, `htmlFor`).
+- `{ }` embeds JavaScript expressions as text or attribute values; use `&&` / ternary for conditionals and `map` + `key` for lists.
+- Rendering is a cycle: **trigger → render (call your function) → commit (patch the DOM)**, and each render is an immutable snapshot.
+- A re-render is just React calling your function again; it only touches the DOM when the output actually changed.

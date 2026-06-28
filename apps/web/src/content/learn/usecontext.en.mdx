@@ -1,0 +1,262 @@
+---
+topic: usecontext
+lang: en
+title: "Context with useContext"
+summary: "How context kills prop-drilling, the createContext/Provider/consumer model, why composition comes first, the re-render caveat, and the context + reducer combo."
+category: Hooks
+level: intermediate
+order: 80
+readingTime: 9
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## The problem: prop-drilling
+
+Some data is needed by many components at different depths: the current theme, the logged-in user, the locale. Passing it down by hand means threading the same prop through every layer in between — even components that never use it:
+
+```jsx
+function App() {
+  const [user] = useState(currentUser)
+  return <Page user={user} />
+}
+
+// Page doesn't care about user, it just has to forward it
+function Page({ user }) {
+  return <Sidebar user={user} />
+}
+
+function Sidebar({ user }) {
+  return <Avatar user={user} />
+}
+```
+
+This is **prop-drilling**. It bloats the API of intermediate components, makes refactoring painful, and couples them to data they only carry. Context lets a component read a value directly from an ancestor, no matter how many layers sit in between.
+
+## createContext + Provider + useContext
+
+There are three moving parts. You create a context, wrap a subtree in its `Provider`, and read it with `useContext` anywhere below:
+
+```jsx
+import { createContext, useContext, useState } from "react"
+
+// 1. Create — the argument is the DEFAULT value
+const ThemeContext = createContext("light")
+
+function App() {
+  const [theme, setTheme] = useState("dark")
+  // 2. Provide — everything inside sees this value
+  return (
+    <ThemeContext.Provider value={theme}>
+      <Page />
+    </ThemeContext.Provider>
+  )
+}
+
+function Avatar() {
+  // 3. Consume — no props needed
+  const theme = useContext(ThemeContext)
+  return <img className={`avatar avatar--${theme}`} />
+}
+```
+
+`useContext(ThemeContext)` reads the value of the **nearest** matching Provider above it in the tree. React walks _up_ from the consumer and stops at the first Provider for that context. `Page` and everything between can stay completely unaware of theme.
+
+<Callout variant="note" title="The default value">
+  The argument to `createContext` is used only when a consumer has *no* Provider above it. It's a
+  safety net (and great for testing components in isolation), not the value your app normally reads.
+</Callout>
+
+## A fuller worked example
+
+Here is a self-contained example: a theme provider whose value many nested components read, including ones the `Form` knows nothing about. Notice that `Form` passes plain `children` — it never touches `theme`:
+
+```jsx
+import { createContext, useContext, useState } from "react"
+
+const ThemeContext = createContext("light")
+
+export default function App() {
+  const [theme, setTheme] = useState("dark")
+  return (
+    <ThemeContext.Provider value={theme}>
+      <button onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}>
+        Toggle theme
+      </button>
+      <Form />
+    </ThemeContext.Provider>
+  )
+}
+
+function Form() {
+  // Form is purely structural — it never reads or forwards theme
+  return (
+    <Panel title="Welcome">
+      <Button>Sign up</Button>
+      <Button>Log in</Button>
+    </Panel>
+  )
+}
+
+function Panel({ title, children }) {
+  const theme = useContext(ThemeContext)
+  return (
+    <section className={`panel panel--${theme}`}>
+      <h1>{title}</h1>
+      {children}
+    </section>
+  )
+}
+
+function Button({ children }) {
+  const theme = useContext(ThemeContext)
+  return <button className={`button button--${theme}`}>{children}</button>
+}
+```
+
+Toggling at the top updates `theme` once and every consumer below — `Panel`, both `Button`s — adapts. No prop crosses `Form`. This is the "components adapt to their surroundings" property context gives you.
+
+## Try composition before context
+
+Context is powerful, but it is not the first tool to reach for. Many cases that _look_ like prop-drilling are solved more simply by **passing JSX as `children`**. If `Layout` only forwards `posts` to `<PostList posts={posts} />`, invert it: let the parent that owns the data render the list and pass it through `children`:
+
+```jsx
+// Instead of drilling `posts` through Layout...
+;<Layout>
+  <PostList posts={posts} />
+</Layout>
+
+// Layout doesn't need to know about posts at all:
+function Layout({ children }) {
+  return <main className="layout">{children}</main>
+}
+```
+
+The component in the middle stops being a relay. Reach for context only when the same value is needed by **many** components at **many** depths, and threading `children` would itself get awkward.
+
+<Callout variant="tip" title="Order of preference">
+  Pass props → pass JSX as `children` → only then reach for context. Context removes prop-drilling,
+  but it also makes data flow less explicit, so save it for genuinely cross-cutting values.
+</Callout>
+
+## When to use context — and when not
+
+Context shines for **low-frequency, app-wide** values that many components read:
+
+- theme / design tokens
+- the authenticated user and permissions
+- locale / i18n
+- a router or a feature-flag bag
+
+It is the **wrong** tool for **high-frequency updates**. Because every consumer re-renders when the value changes (more on that next), putting fast-changing state — mouse position, form input on every keystroke, animation progress — into a single context can re-render large parts of the tree on every change. Keep that state local, or use a tool built for it.
+
+<Callout variant="warn" title="Context is not a state manager">
+  Context only *transports* a value down the tree — it has no update logic, no selectors, no
+  caching. You still own the state (usually with `useState`/`useReducer`); context just delivers it.
+</Callout>
+
+## The re-render caveat
+
+When a Provider's `value` changes, **every** component that calls `useContext` for that context re-renders — even ones that only use part of the value. The classic trap is passing a fresh object literal each render:
+
+```jsx
+function App() {
+  const [user, setUser] = useState(null)
+  // 🚩 New object every render → all consumers re-render every time App renders
+  return (
+    <AuthContext.Provider value={{ user, setUser }}>
+      <Routes />
+    </AuthContext.Provider>
+  )
+}
+```
+
+The object `{ user, setUser }` is a brand-new reference on every render of `App`, so React treats the context value as "changed" even when `user` didn't. Stabilize it with `useMemo`:
+
+```jsx
+function App() {
+  const [user, setUser] = useState(null)
+  // ✅ Same reference until user actually changes
+  const value = useMemo(() => ({ user, setUser }), [user])
+  return (
+    <AuthContext.Provider value={value}>
+      <Routes />
+    </AuthContext.Provider>
+  )
+}
+```
+
+The second technique is **splitting contexts**. If a value rarely changes (the `dispatch`/`setUser` function) and another changes often (the `user` data), put them in separate contexts so a component that only needs the stable one doesn't re-render when the volatile one updates:
+
+```jsx
+const AuthStateContext = createContext(null) // changes when user changes
+const AuthActionsContext = createContext(null) // setUser — stable forever
+```
+
+A component that only dispatches actions subscribes to `AuthActionsContext` and never re-renders on data changes.
+
+<Callout variant="note" title="A Provider only re-renders consumers, not the whole subtree">
+  Changing context value re-renders the components that *read* that context, plus their children,
+  but components in between that don't consume it are not forced to re-render by the context change
+  itself. `useMemo` and split contexts are about keeping the consumer set as small as possible.
+</Callout>
+
+## Context + reducer: the canonical combo
+
+Context distributes; it does not manage. For app-wide state with real update logic, pair it with `useReducer`: the reducer owns _how_ state changes, context delivers `state` and `dispatch` to wherever they're needed. Wrapping both in a single provider component keeps the wiring in one place:
+
+```jsx
+import { createContext, useContext, useReducer } from "react"
+
+const TasksContext = createContext(null)
+const TasksDispatchContext = createContext(null)
+
+function tasksReducer(tasks, action) {
+  switch (action.type) {
+    case "added":
+      return [...tasks, { id: action.id, text: action.text, done: false }]
+    case "deleted":
+      return tasks.filter((t) => t.id !== action.id)
+    default:
+      throw new Error(`Unknown action: ${action.type}`)
+  }
+}
+
+export function TasksProvider({ children }) {
+  const [tasks, dispatch] = useReducer(tasksReducer, [])
+  return (
+    <TasksContext.Provider value={tasks}>
+      <TasksDispatchContext.Provider value={dispatch}>{children}</TasksDispatchContext.Provider>
+    </TasksContext.Provider>
+  )
+}
+
+// Tidy consumer hooks so components don't touch the contexts directly
+export const useTasks = () => useContext(TasksContext)
+export const useTasksDispatch = () => useContext(TasksDispatchContext)
+```
+
+Now any component reads `useTasks()` or fires `useTasksDispatch()({ type: "added", ... })` without a single prop being drilled. The `useReducer` topic covers writing the reducer itself.
+
+## Comparison to state libraries
+
+Context plus `useReducer` covers a lot of "global-ish" state without a dependency. But context has no built-in **selector** — you can't subscribe to just one slice and skip re-renders on the rest. Libraries like Redux, Zustand, or Jotai add exactly that: fine-grained subscriptions, devtools, middleware, and caching.
+
+|                        | Context                      | State library                    |
+| ---------------------- | ---------------------------- | -------------------------------- |
+| Dependency             | built-in                     | external                         |
+| Selective subscription | no (all consumers re-render) | yes                              |
+| Best for               | theme, auth, locale          | large, frequently-updated stores |
+
+Reach for a library when context's re-render behavior becomes a performance problem or you need selectors and devtools. For most apps, context handles the cross-cutting values just fine.
+
+## Recap
+
+- Context lets a component provide a value to the **entire tree below it**, skipping every intermediate component.
+- Three steps: `createContext(default)`, wrap with `<Context.Provider value={...}>`, read with `useContext(Context)`.
+- `useContext` finds the **nearest** Provider above; the default value is only used when there's none.
+- Before context, try passing props or passing JSX as `children` — context trades explicitness for convenience.
+- All consumers re-render when `value` changes. Stabilize objects with `useMemo` and **split** state vs. actions into separate contexts.
+- Context transports state; it doesn't manage it. For shared logic, pair it with `useReducer`.
+
+> Context solves _distribution_ (getting a value to where it's needed), not _management_ (how the value changes). Know which problem you actually have.

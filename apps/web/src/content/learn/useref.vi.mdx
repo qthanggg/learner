@@ -1,0 +1,196 @@
+---
+topic: useref
+lang: vi
+title: "useRef & truy cập DOM"
+summary: "Một chiếc hộp có thể thay đổi, tồn tại qua các lần render mà không kích hoạt render — dùng cho DOM node, timer, giá trị trước đó, và mọi thứ React không cần render."
+category: Hooks
+level: intermediate
+order: 70
+readingTime: 11
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Ref là chiếc hộp tồn tại qua các lần render
+
+`useRef(initial)` trả về một object có đúng một thuộc tính thay đổi được: `.current`. React giữ **nguyên một object** đó qua mọi lần render, nên nó là chỗ ổn định để cất một giá trị. Khác biệt then chốt so với state: **thay đổi `.current` không kích hoạt re-render.**
+
+```jsx
+import { useRef } from "react"
+
+function Timer() {
+  const renders = useRef(0)
+  renders.current += 1 // đổi thoải mái, không re-render
+  return <p>Component này đã render {renders.current} lần</p>
+}
+```
+
+Hãy xem nó như "bộ nhớ của instance". State dành cho giá trị người dùng thấy và cần vẽ lại UI; ref dành cho giá trị React không cần render — chỉ cần tồn tại giữa các lần render. Tài liệu chính thức gọi ref là một **"escape hatch"** (cửa thoát hiểm) khỏi mô hình React: hữu ích đúng lúc bạn cần bước ra ngoài luồng khai báo để nói chuyện với hệ thống không phải React.
+
+<Callout variant="note" title="Ref là state nhưng không re-render">
+  Bên trong, ref chỉ là `{ current: value }` mà React trả về nguyên vẹn mỗi render. Không có phép màu
+  nào — điều đặc biệt duy nhất là việc ghi vào nó vô hình với chu trình render của React.
+</Callout>
+
+## Khi nào đọc/ghi ref là an toàn?
+
+Vì đổi ref không re-render, đọc nó _trong lúc_ render sẽ cho bạn bất cứ thứ gì tình cờ đang ở đó — điều này phá vỡ tính thuần khiết, khiến kết quả khó đoán (và không tương thích với các tối ưu tương lai của React).
+
+- **Trong lúc render:** đừng đọc/ghi `ref.current` (trừ việc khởi tạo lười một lần nếu nó còn rỗng).
+- **Trong effect:** an toàn — chúng chạy sau commit.
+- **Trong event handler:** an toàn — chúng chạy ngoài render.
+
+```jsx
+function Form() {
+  const ref = useRef(0)
+
+  // 🐛 đọc/ghi trong lúc render
+  ref.current = ref.current + 1 // khó đoán
+
+  function handleClick() {
+    ref.current = ref.current + 1 // ✅ trong handler
+  }
+}
+```
+
+Bộ đếm render ở ví dụ đầu là ngoại lệ cố ý để minh hoạ, không phải pattern để sao chép.
+
+## Truy cập một DOM node
+
+Công dụng phổ biến nhất: lấy "tay cầm" tới một phần tử DOM thật. Truyền ref vào thuộc tính `ref` của một JSX element, React sẽ gán `.current` bằng DOM node sau khi commit.
+
+```jsx
+function SearchBox() {
+  const inputRef = useRef(null)
+
+  function focusInput() {
+    inputRef.current.focus() // lời gọi DOM kiểu mệnh lệnh
+  }
+
+  return (
+    <>
+      <input ref={inputRef} />
+      <button onClick={focusInput}>Focus ô input</button>
+    </>
+  )
+}
+```
+
+`inputRef.current` là `null` ở lần render đầu (DOM chưa tồn tại) và trở thành node `<input>` khi đã commit. Dùng cách này cho những việc React không có API khai báo (declarative): focus, bôi chọn text, cuộn, đo kích thước, hay điều khiển `<canvas>` / phần tử media.
+
+<Callout variant="warn" title="Đừng thò tay vào phần DOM do React quản lý">
+  Ref dùng để *focus* hay *cuộn* một node thì ổn. Đừng dùng nó để thêm, xoá, hay sắp xếp lại phần
+  DOM mà React render — tự tay xoá một child mà React vẫn nghĩ là của mình sẽ crash ở lần render kế
+  tiếp. Hãy để React sở hữu cấu trúc; dùng ref cho các hành động mệnh lệnh trên những node đã tồn
+  tại.
+</Callout>
+
+## Lưu giá trị thay đổi được: timer và giá trị trước đó
+
+Ref toả sáng với những giá trị thay đổi theo thời gian nhưng không nên gây render — ví dụ id của timer mà bạn cần clear sau này.
+
+```jsx
+function Stopwatch() {
+  const [time, setTime] = useState(0)
+  const intervalRef = useRef(null)
+
+  function start() {
+    if (intervalRef.current) return
+    intervalRef.current = setInterval(() => setTime((t) => t + 1), 1000)
+  }
+  function stop() {
+    clearInterval(intervalRef.current)
+    intervalRef.current = null
+  }
+  return <button onClick={start}>{time}s</button>
+}
+```
+
+Ref cũng có thể nhớ giá trị **trước đó** của một prop hay state bằng cách ghi vào nó bên trong effect, _sau khi_ render đã dùng xong giá trị cũ.
+
+```jsx
+function usePrevious(value) {
+  const ref = useRef()
+  useEffect(() => {
+    ref.current = value // chạy sau render, nên phần đọc bên trên thấy giá trị cũ
+  }, [value])
+  return ref.current // giá trị của render trước
+}
+```
+
+Thứ tự chính là mấu chốt: trong lúc render, `ref.current` vẫn giữ giá trị trước đó vì effect cập nhật nó chưa chạy.
+
+## Ref và state — chọn cái nào
+
+|                             | `useState`              | `useRef`                                |
+| --------------------------- | ----------------------- | --------------------------------------- |
+| Kích hoạt re-render khi đổi | có                      | không                                   |
+| Giá trị hiển thị trên UI    | có                      | thường là không                         |
+| Đọc trong lúc render        | được                    | nên tránh                               |
+| Tồn tại qua các re-render   | có                      | có                                      |
+| Hợp với                     | dữ liệu người dùng thấy | DOM node, timer, cache giá trị mới nhất |
+
+Nếu thay đổi giá trị mà cần cập nhật màn hình thì dùng state. Nếu đó chỉ là ghi chú nội bộ mà UI không phụ thuộc vào thì dùng ref. Lấy ref để "tránh re-render" cho dữ liệu mà bạn _có_ render là một cái bẫy — màn hình sẽ không cập nhật vì không gì báo cho React vẽ lại.
+
+## Truyền ref vào component của chính bạn
+
+Ref trên một thẻ có sẵn như `<input>` thì chạy ngay. Truyền ref vào **component của bạn** trước đây lại khác, vì `ref` không phải một prop bình thường.
+
+Ở **React 19**, `ref` được truyền như một prop thông thường — bạn có thể destructure trực tiếp:
+
+```jsx
+// React 19
+function TextInput({ ref, ...props }) {
+  return <input ref={ref} {...props} />
+}
+```
+
+Ở **React 18 trở về trước**, bạn phải bọc component trong `forwardRef`:
+
+```jsx
+// React 18
+import { forwardRef } from "react"
+
+const TextInput = forwardRef(function TextInput(props, ref) {
+  return <input ref={ref} {...props} />
+})
+```
+
+Dù theo cách nào, component cha vẫn dùng giống nhau: `<TextInput ref={myRef} />`. `forwardRef` vẫn chạy ở React 19, nhưng không còn bắt buộc với code mới.
+
+## Công bố một handle tuỳ chỉnh với useImperativeHandle
+
+Đôi khi bạn không muốn lộ DOM node thô, mà chỉ vài method. `useImperativeHandle` cho phép component công bố một API mệnh lệnh tuỳ chỉnh thay vì phần tử bên dưới:
+
+```jsx
+function FancyInput({ ref }) {
+  const inputRef = useRef(null)
+
+  useImperativeHandle(ref, () => ({
+    focus() {
+      inputRef.current.focus()
+    },
+    scrollIntoView() {
+      inputRef.current.scrollIntoView()
+    },
+  }))
+
+  return <input ref={inputRef} />
+}
+```
+
+Giờ ref của component cha chỉ lộ ra `focus` và `scrollIntoView`, không phải toàn bộ node input.
+
+<Callout variant="tip" title="Hãy dùng tiết chế">
+  `useImperativeHandle` nằm trong nhóm "hiếm khi dùng" của tài liệu là có lý do. Phần lớn giao tiếp
+  cha-con nên chảy qua props và callback. Chỉ dùng imperative handle khi bạn thật sự cần kích hoạt
+  một hành động (focus, play, scroll) không có cách khai báo tương đương.
+</Callout>
+
+## Tóm tắt
+
+- Ref là chiếc hộp `{ current }` ổn định, tồn tại qua các render và **không bao giờ** gây render khi bị sửa.
+- Đọc và ghi nó trong effect và event handler — không phải trong lúc render (ngoại trừ khởi tạo lười một lần).
+- Gắn qua thuộc tính `ref` để lấy DOM node sau commit; trước đó nó là `null`.
+- Dùng ref cho id timer, giá trị trước đó, và các ghi chú nội bộ không render; dùng state cho mọi thứ UI hiển thị.
+- Ở React 19 `ref` là prop thường; trước đó phải bọc `forwardRef`. `useImperativeHandle` tuỳ chỉnh thứ ref lộ ra — hãy dùng hiếm.

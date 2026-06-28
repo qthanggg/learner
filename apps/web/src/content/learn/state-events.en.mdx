@@ -1,0 +1,299 @@
+---
+topic: state-events
+lang: en
+title: "State & events with useState"
+summary: "How useState works, why state is a snapshot, batching and the updater form, immutable updates for objects and arrays, the event object, and lifting state up."
+category: Fundamentals
+level: beginner
+order: 30
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## useState: memory that triggers re-renders
+
+Props come from above and are read-only. **State** is data a component owns and can change over time. `useState` gives you a value plus a setter, and calling the setter tells React to re-render with the new value.
+
+```jsx
+import { useState } from "react"
+
+function Counter() {
+  const [count, setCount] = useState(0) // 0 is the initial value
+
+  return <button onClick={() => setCount(count + 1)}>Count: {count}</button>
+}
+```
+
+`useState` returns a pair: the current value and a function to update it. The argument is the **initial** value, used only on the first render. On every later render React hands back the latest stored value — your local `count` variable, but remembered across renders.
+
+You can hold any type in state — strings, numbers, booleans, objects, arrays, or `null`. Declare one `useState` per independent piece of data:
+
+```jsx
+const [name, setName] = useState("")
+const [age, setAge] = useState(0)
+const [isOpen, setIsOpen] = useState(false)
+const [items, setItems] = useState([])
+```
+
+<Callout variant="note" title="Why a setter, not count = count + 1">
+  Reassigning a local variable wouldn't re-render anything. Calling `setCount` does two things: it
+  stores the next value, and it schedules a re-render so the screen reflects it.
+</Callout>
+
+<Callout variant="tip" title="Expensive initial value? Pass a function">
+  If the initial state is costly to compute, pass an _initializer function_ — `useState(() =>
+  createInitial())` — and React runs it only on the first render. Note `useState(createInitial())`
+  would call it on every render and throw the result away.
+</Callout>
+
+## State is a snapshot per render
+
+This trips up almost everyone. Within a single render, your state value is a **fixed snapshot** — a constant for that render. It does not change mid-function, even after you call the setter.
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0)
+
+  function handleClick() {
+    setCount(count + 1)
+    setCount(count + 1)
+    setCount(count + 1)
+    // count is still 0 here, so this sets it to 1 — not 3
+  }
+
+  return <button onClick={handleClick}>{count}</button>
+}
+```
+
+All three calls read the same `count` (0) from this render's snapshot, so they all compute `1`. The fix is the updater form below. The mental model: a render is a photo of state at one moment; setting state schedules the _next_ photo, it doesn't edit the current one.
+
+The same snapshot rule explains why state read inside a timeout is the value from when the timeout was _scheduled_, not the latest one:
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0)
+
+  function handleClick() {
+    setCount(count + 1)
+    setTimeout(() => {
+      alert(count) // alerts 0, not 1 — captured from this render's snapshot
+    }, 2000)
+  }
+  // ...
+}
+```
+
+## Batching: many setters, one render
+
+React **batches** multiple state updates that happen in the same event into a single re-render, for performance. Setting three different states in one handler renders once, not three times.
+
+```jsx
+function handleSubmit() {
+  setLoading(true)
+  setError(null)
+  setSubmitted(true)
+  // one re-render, with all three applied
+}
+```
+
+Since React 18 batching also covers updates inside promises, `setTimeout`, and native event handlers — so the behavior is consistent everywhere. This is another reason the snapshot model holds: state isn't "live" mid-handler, it's applied together before the next render.
+
+## The updater function form
+
+When the next state depends on the previous state, pass a **function** to the setter. React queues it and calls it with the most up-to-date value, using the return as the next state.
+
+```jsx
+function handleClick() {
+  setCount((c) => c + 1)
+  setCount((c) => c + 1)
+  setCount((c) => c + 1)
+  // 0 → 1 → 2 → 3 ✅
+}
+```
+
+Each updater receives the result of the previous one, so they stack correctly. React applies the queue in order. You can even mix forms — a plain value replaces whatever is queued, then later updaters build on it:
+
+```jsx
+function handleClick() {
+  setCount(count + 5) // queue: replace with 5
+  setCount((c) => c + 1) // queue: 5 → 6
+  setCount(42) // queue: replace with 42
+  // final result: 42
+}
+```
+
+Rule of thumb: if the next value is computed from the current one, write `setX((x) => ...)`. It is always safe and avoids stale-value bugs.
+
+<Callout variant="warn" title="Updaters must be pure">
+  An updater function should only compute and return the next state. Don't set other state, trigger
+  side effects, or mutate the argument inside it — in Strict Mode React may call it twice to surface
+  impurity, and side effects would run twice.
+</Callout>
+
+## Never mutate state — update immutably
+
+React detects changes by comparing references with `Object.is`. If you mutate an object or array in place, the reference stays the same, so React may skip the re-render. Always create a **new** object or array.
+
+```jsx
+// Objects — copy with spread, then override
+const [user, setUser] = useState({ name: "Thang", age: 20 })
+// ❌ user.age = 21; setUser(user)
+setUser({ ...user, age: 21 }) // ✅ new object
+```
+
+Spread is **shallow** — it copies one level deep. For nested objects, copy each level you change:
+
+```jsx
+const [user, setUser] = useState({
+  name: "Thang",
+  address: { city: "Hanoi", zip: "10000" },
+})
+
+// Update a nested field — copy both levels
+setUser({
+  ...user,
+  address: { ...user.address, city: "Da Nang" },
+})
+```
+
+### Arrays: a non-mutating cheat-sheet
+
+Treat arrays in state as read-only too. Avoid the mutating methods on the left; use the returning ones on the right.
+
+```jsx
+const [todos, setTodos] = useState([])
+
+// add (avoid push / unshift)
+setTodos([...todos, newTodo]) // end
+setTodos([newTodo, ...todos]) // start
+
+// remove (avoid splice / pop)
+setTodos(todos.filter((t) => t.id !== id))
+
+// replace / update one (avoid todos[i] = ...)
+setTodos(todos.map((t) => (t.id === id ? { ...t, done: true } : t)))
+
+// insert at index i (avoid splice)
+setTodos([...todos.slice(0, i), newTodo, ...todos.slice(i)])
+
+// sort or reverse — copy first (these mutate!)
+setTodos([...todos].sort((a, b) => a.order - b.order))
+```
+
+| Operation | Avoid (mutates)          | Use (returns new)        |
+| --------- | ------------------------ | ------------------------ |
+| add       | `push`, `unshift`        | spread `[...arr, x]`     |
+| remove    | `pop`, `shift`, `splice` | `filter`                 |
+| replace   | `arr[i] = x`             | `map`                    |
+| sort      | `sort`, `reverse`        | spread copy, then `sort` |
+
+<Callout variant="warn" title="A shallow copy still shares nested objects">
+  `const next = [...list]` copies the array, but `next[0]` is the _same object_ as `list[0]`. Doing
+  `next[0].seen = true` mutates the original. To update an item, `map` and return a **new** object
+  (`{ ...item, seen: true }`) — don't reach into the copy.
+</Callout>
+
+## Responding to events
+
+You attach handlers with camelCase props like `onClick`, `onChange`, `onSubmit`. You pass a **function reference**, not a call.
+
+```jsx
+<button onClick={handleClick}>OK</button>        // ✅ reference
+<button onClick={handleClick()}>OK</button>      // ❌ calls it during render
+<button onClick={() => save(id)}>Save</button>   // ✅ inline arrow to pass args
+```
+
+The difference matters: `onClick={handleClick}` hands React the function to call _on click_. `onClick={handleClick()}` calls it immediately during render and passes the return value — usually `undefined` — which also fires it on every render.
+
+### The event object
+
+React passes your handler a **SyntheticEvent** — a thin cross-browser wrapper over the native DOM event with the same API (`e.preventDefault()`, `e.target`, `e.stopPropagation()`). It behaves consistently across browsers.
+
+```jsx
+function SearchBox() {
+  const [q, setQ] = useState("")
+  return (
+    <form onSubmit={(e) => e.preventDefault()}>
+      <input value={q} onChange={(e) => setQ(e.target.value)} />
+    </form>
+  )
+}
+```
+
+`e.preventDefault()` stops the browser's default behavior (like a form reloading the page on submit). `e.target` is the DOM element that triggered the event — `e.target.value` for inputs, `e.target.checked` for checkboxes.
+
+### Propagation and stopPropagation
+
+Events in React **bubble**: a click on a child fires the child's `onClick`, then the parent's, then up the tree. Call `e.stopPropagation()` to stop the event travelling further up.
+
+```jsx
+function Toolbar() {
+  return (
+    <div onClick={() => console.log("toolbar clicked")}>
+      <button
+        onClick={(e) => {
+          e.stopPropagation() // the div's onClick won't fire
+          console.log("button clicked")
+        }}
+      >
+        Click
+      </button>
+    </div>
+  )
+}
+```
+
+<Callout variant="note" title="preventDefault vs stopPropagation">
+  They solve different problems. `preventDefault` stops the _browser's_ built-in action (submitting,
+  following a link). `stopPropagation` stops the _event_ from bubbling to parent handlers. You can
+  call either, both, or neither.
+</Callout>
+
+## Lifting state up
+
+When two siblings need the same data, don't duplicate state in each. Move it up to their closest common parent and pass the value down as props plus a setter callback. This keeps a **single source of truth**.
+
+```jsx
+function Parent() {
+  const [value, setValue] = useState("")
+  return (
+    <>
+      <Input value={value} onChange={setValue} />
+      <Preview text={value} />
+    </>
+  )
+}
+
+function Input({ value, onChange }) {
+  return <input value={value} onChange={(e) => onChange(e.target.value)} />
+}
+
+function Preview({ text }) {
+  return <p>{text}</p>
+}
+```
+
+The parent owns the state; children receive it as props and report changes upward through the callback. Data down, events up — the same pattern from props, now powering shared state. A classic example is a set of accordion panels where only one is open at a time: the parent holds the `activeIndex`, and each panel reports clicks up so siblings can react.
+
+<Callout variant="tip" title="Lift only as far as needed">
+  Keep state as local as possible. Lift it only to the nearest parent that _both_ users share —
+  pushing it higher than necessary makes more of the tree re-render and complicates the data flow.
+</Callout>
+
+## The takeaway
+
+> State is a snapshot per render. React batches updates within an event, so use the updater form
+> `setX(x => ...)` whenever the next value depends on the last one. Update objects and arrays
+> immutably (copy, then change), reach for the event object's `preventDefault`/`stopPropagation`
+> when you need them, and lift state to the closest common parent when siblings must share it.
+
+Quick recap:
+
+- `useState` returns `[value, setter]`; the argument is the initial value, used once.
+- A render sees a frozen snapshot of state; setting it schedules the next render.
+- Multiple setters in one event are batched into a single re-render.
+- Use `setX(prev => ...)` for sequential or derived updates.
+- Never mutate — spread objects, use `map`/`filter`/spread for arrays.
+- `e.preventDefault()` stops the browser default; `e.stopPropagation()` stops bubbling.
+- Lift shared state to the nearest common parent for a single source of truth.

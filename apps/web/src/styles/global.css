@@ -38,3 +38,132 @@ html {
     scroll-behavior: auto !important;
   }
 }
+
+/* ───────────────────────── Knowledge base (/learn) ─────────────────────────
+   Both languages are rendered into the page; `data-learn-lang` on <html>
+   (seeded pre-paint in BaseLayout, toggled by stores/lang.ts) decides which is
+   shown. Default to Vietnamese when the attribute is missing. */
+[data-learn-lang="en"] [data-lang="vi"],
+[data-learn-lang="vi"] [data-lang="en"] {
+  display: none;
+}
+:root:not([data-learn-lang]) [data-lang="en"] {
+  display: none;
+}
+
+/* Dual Shiki themes: light is the default output, swap to the dark vars under
+   `.dark`. Configured in astro.config.mjs (github-light / github-dark). */
+.dark .astro-code,
+.dark .astro-code span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+  font-style: var(--shiki-dark-font-style) !important;
+  font-weight: var(--shiki-dark-font-weight) !important;
+  text-decoration: var(--shiki-dark-text-decoration) !important;
+}
+
+/* Article typography. No @tailwindcss/typography in this project, so the prose
+   rhythm is defined here against the design-system tokens. */
+.learn-prose {
+  color: var(--foreground);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+.learn-prose > * + * {
+  margin-top: 1.15em;
+}
+.learn-prose h2 {
+  margin-top: 2.25em;
+  margin-bottom: 0.6em;
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  scroll-margin-top: 5rem;
+}
+.learn-prose h3 {
+  margin-top: 1.8em;
+  margin-bottom: 0.4em;
+  font-size: 1.25rem;
+  font-weight: 600;
+  scroll-margin-top: 5rem;
+}
+.learn-prose h2 + p,
+.learn-prose h3 + p {
+  margin-top: 0;
+}
+.learn-prose p,
+.learn-prose li {
+  color: color-mix(in oklch, var(--foreground) 88%, var(--muted-foreground));
+  text-wrap: pretty;
+}
+.learn-prose a {
+  color: var(--brand-pink);
+  text-underline-offset: 3px;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+}
+.learn-prose strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.learn-prose ul,
+.learn-prose ol {
+  padding-left: 1.4em;
+}
+.learn-prose ul {
+  list-style: disc;
+}
+.learn-prose ol {
+  list-style: decimal;
+}
+.learn-prose li::marker {
+  color: var(--brand-pink);
+}
+.learn-prose li + li {
+  margin-top: 0.4em;
+}
+/* Inline code (not inside a highlighted block). */
+.learn-prose :not(pre) > code {
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.12em 0.4em;
+  font-size: 0.875em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.learn-prose pre {
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+  padding: 1rem 1.15rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.learn-prose blockquote {
+  border-left: 3px solid var(--brand-pink);
+  padding-left: 1rem;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.learn-prose hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 2.5em 0;
+}
+.learn-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.925rem;
+}
+.learn-prose th,
+.learn-prose td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.learn-prose th {
+  background: color-mix(in oklch, var(--muted) 50%, transparent);
+  font-weight: 600;
+}

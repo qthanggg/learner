@@ -1,0 +1,228 @@
+---
+topic: rerenders-memo
+lang: vi
+title: "Re-render, memo, useMemo & useCallback"
+summary: "Khi nào React render lại, vì sao đa số re-render là vô hại, và cách dùng memo, useMemo, useCallback dựa trên bằng chứng thay vì lạm dụng theo thói quen."
+category: Advanced
+level: advanced
+order: 120
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+import ReRenderViz from "../../components/react/learn/ReRenderViz.tsx"
+
+## Điều gì thực sự kích hoạt re-render
+
+Một component chạy lại ("re-render") trong đúng ba tình huống:
+
+1. **State của chính nó đổi** — một setter của `useState`/`useReducer` được gọi với giá trị mới.
+2. **Component cha render lại** — mặc định React chạy lại _mọi_ component con của một cha đang render lại, bất kể props của con đó có đổi hay không.
+3. **Một context mà nó dùng đổi** — mọi component đọc giá trị context đó qua `useContext` đều render lại.
+
+Trường hợp thứ hai hay khiến người ta bất ngờ. Re-render không đồng nghĩa với cập nhật DOM: React chạy lại hàm component để tạo ra một cây element mới, rồi _reconcile_ cây đó với cây trước, và chỉ chạm vào DOM ở nơi thực sự khác. Vậy nên "component của tôi render lại" hiếm khi có nghĩa "trình duyệt vẽ lại". Đa số re-render là rẻ và hoàn toàn ổn.
+
+Thử xem. Bấm nút sẽ tăng một state ở component cha. Đứa con thường render lại mỗi lần; đứa con bọc `memo()` nhận props y hệt nên React bỏ qua việc chạy lại nó:
+
+<ReRenderViz client:visible />
+
+Bộ đếm "plain" tăng đều, còn bản memo đứng yên. Đó chính là toàn bộ nhiệm vụ của `React.memo` — nó bỏ qua việc render lại một component khi props mới **bằng (nông)** với props cũ.
+
+<Callout variant="note" title="Render không phải là commit">
+  React làm việc theo hai bước: <strong>render phase</strong> gọi component của bạn để tính UI kế
+  tiếp, và <strong>commit phase</strong> áp dụng số thay đổi DOM tối thiểu. Memoization là chuyện bỏ
+  bớt việc thừa trong render phase. Nếu render vốn đã rẻ, bỏ qua nó gần như chẳng tiết kiệm được gì.
+</Callout>
+
+## React.memo
+
+`memo` bọc một component và thêm bước kiểm tra props trước khi render lại:
+
+```jsx
+import { memo } from "react"
+
+const Row = memo(function Row({ label, value }) {
+  return (
+    <li>
+      {label}: {value}
+    </li>
+  )
+})
+```
+
+Nó so sánh props **nông** — chạy `Object.is` trên từng key của props. Nếu mọi key đều bằng nhau, React tái dùng kết quả render trước và bỏ qua việc gọi `Row`. `memo` chỉ có ích khi cả hai điều sau cùng đúng:
+
+- component thường xuyên render lại do cha render, **và**
+- props của nó thường ổn định về tham chiếu giữa các lần render đó.
+
+Điểm bẫy: nếu cha truyền một object, array hay function **mới** ở mỗi lần render, phép so sánh nông luôn fail và `memo` thành vô dụng — bạn trả giá cho phép so sánh mà vẫn render lại. Đó đúng là lý do tồn tại của hai hook tiếp theo.
+
+### So sánh tùy biến
+
+`memo` nhận một đối số thứ hai: hàm so sánh `arePropsEqual(prevProps, nextProps)` trả về `true` để **bỏ qua** re-render. Hãy dùng dè dặt — rất dễ tạo ra bug UI cũ kỹ vì so sánh quá lỏng:
+
+```jsx
+const Chart = memo(
+  function Chart({ data, color }) {
+    return <Canvas data={data} color={color} />
+  },
+  (prev, next) => prev.data.id === next.data.id && prev.color === next.color,
+)
+```
+
+<Callout variant="warn" title="Hàm so sánh phải so mọi prop bạn dùng">
+  Nếu hàm so sánh trả về <code>true</code> trong khi một prop bạn thực sự render đã đổi, UI âm thầm
+  hiển thị dữ liệu cũ. Đừng bao giờ so sánh function bằng hàm so sánh tùy biến (chúng gần như không
+  bao giờ bằng nhau) — làm vậy phản tác dụng và che giấu bug.
+</Callout>
+
+## useMemo — ghi nhớ một giá trị
+
+`useMemo` nhớ lại một giá trị đã tính giữa các lần render, chỉ tính lại khi một trong các dependency đổi:
+
+```jsx
+const visibleTodos = useMemo(() => filterTodos(todos, tab), [todos, tab])
+```
+
+Có hai trường hợp dùng hợp lý, ứng với hai bài toán khác nhau:
+
+**1. Tránh một tính toán nặng.** Nếu `filterTodos` sort hoặc filter một list lớn ở mỗi render, `useMemo` chỉ chạy nó khi `todos` hoặc `tab` thực sự đổi. "Nặng" ở đây có nghĩa cụ thể: hãy đo. Một quy tắc kinh nghiệm từ React docs là nếu việc tính tốn hơn ~1ms thì memo hóa nó có thể đáng giá.
+
+```jsx
+function TodoList({ todos, tab, theme }) {
+  // Được cache giữa các lần render trừ khi todos hoặc tab đổi.
+  const visibleTodos = useMemo(() => filterTodos(todos, tab), [todos, tab])
+  return (
+    <div className={theme}>
+      <List items={visibleTodos} />
+    </div>
+  )
+}
+```
+
+**2. Giữ tham chiếu ổn định.** Ngay cả khi một tính toán là rẻ, `useMemo` vẫn hữu ích để cho một `memo` child _cùng_ một danh tính object/array qua các lần render, nhờ đó phép kiểm tra props nông của nó vượt qua:
+
+```jsx
+const style = useMemo(() => ({ color }), [color]) // object mới chỉ khi color đổi
+// <Panel style={style} /> — Panel (memo) sẽ không render lại chỉ vì cha render
+```
+
+Trường hợp thứ hai chỉ có lợi khi `List` hay `Panel` được bọc `memo`. Không có bên tiêu thụ đã memo hóa, một tham chiếu ổn định chẳng thay đổi gì.
+
+## useCallback — ghi nhớ một hàm
+
+`useCallback(fn, deps)` về bản chất là `useMemo(() => fn, deps)` — nó trả về **cùng một danh tính hàm** giữa các render cho tới khi dependency đổi. Nếu không, mỗi render đều tạo một hàm hoàn toàn mới, làm hỏng phép so sánh nông của một `memo` child:
+
+```jsx
+function ProductPage({ productId, referrer, theme }) {
+  const handleSubmit = useCallback(
+    (orderDetails) => {
+      post("/product/" + productId + "/buy", { referrer, orderDetails })
+    },
+    [productId, referrer],
+  )
+
+  return (
+    <div className={theme}>
+      {/* ShippingForm (memo) bỏ qua render lại khi handleSubmit giữ nguyên danh tính */}
+      <ShippingForm onSubmit={handleSubmit} />
+    </div>
+  )
+}
+```
+
+<Callout variant="warn" title="Không có memo child thì useCallback vô ích">
+  Hàm ổn định chỉ giúp ích khi có thứ gì đó <em>đang so sánh</em> nó — một <code>memo</code> child,
+  một dependency của <code>useEffect</code>, hay của <code>useMemo</code>. Bọc mọi handler bằng
+  <code>useCallback</code> "cho chắc" chỉ thêm chi phí và rối mắt, đổi lại con số 0, và còn làm
+  phình các mảng dependency bạn phải bảo trì.
+</Callout>
+
+## Giải pháp cấu trúc: truyền children để né re-render
+
+Memoization không phải — và thậm chí không phải là thứ đầu tiên — bạn nên với tới. Hai mẫu cấu trúc sau loại bỏ các re-render thừa mà không cần `memo` nào cả.
+
+**Đẩy state xuống thấp.** Nếu chỉ một phần nhỏ của một component lớn dùng state nào đó, hãy tách phần đó thành component riêng và giữ state ở đó. Các sibling nặng sẽ ngừng render lại vì chúng không còn nằm nơi state thay đổi.
+
+```jsx
+// Trước: gõ vào ô search render lại cả trang, gồm cả <HeavyList>.
+function Page() {
+  const [query, setQuery] = useState("")
+  return (
+    <>
+      <input value={query} onChange={(e) => setQuery(e.target.value)} />
+      <HeavyList />
+    </>
+  )
+}
+
+// Sau: state nằm trong SearchBox; HeavyList là sibling và không bao giờ render lại khi gõ phím.
+function Page() {
+  return (
+    <>
+      <SearchBox />
+      <HeavyList />
+    </>
+  )
+}
+```
+
+**Đưa nội dung lên trên và truyền dưới dạng `children`.** Một cha sở hữu state đổi nhanh vẫn có thể render một con nặng — miễn là con đó đến dưới dạng prop. React không render lại một element bạn nhận qua `children`; nó được tạo bởi cha của _bạn_, không phải bởi component đang render lại:
+
+```jsx
+// Đổi theme render lại Layout, nhưng `children` được tạo bởi App,
+// nên <ExpensiveTree /> không render lại theo.
+function App() {
+  return (
+    <Layout>
+      <ExpensiveTree />
+    </Layout>
+  )
+}
+
+function Layout({ children }) {
+  const [color, setColor] = useState("black")
+  return (
+    <div style={{ color }}>
+      <button onClick={() => setColor("blue")}>Đổi màu</button>
+      {children}
+    </div>
+  )
+}
+```
+
+Đây chính là hiệu quả mà `memo` mang lại, nhưng đạt được thuần bằng cấu trúc — và nó không bao giờ bị cũ kỹ.
+
+## Khi nào memoization KHÔNG đáng
+
+- **Component vốn rẻ.** Render lại vài `<div>` còn rẻ hơn việc lưu và so sánh dependency mỗi render. Bạn đang thêm việc, chứ không bớt việc.
+- **Props vốn đã đổi mỗi render.** Nếu cha bón object/function mới mỗi render, `memo` luôn trượt và bạn trả giá so sánh để chẳng được gì.
+- **Bạn không thể thỏa mãn mọi dependency.** Memo hóa với một dependency thiếu để "cho nó ổn định" sẽ tạo ra closure cũ kỹ — một bug thực sự, không phải lợi ích về hiệu năng.
+- **Có giải pháp cấu trúc.** Đẩy state xuống hay truyền `children` thường đơn giản và bền vững hơn là rải các memo hook khắp nơi.
+
+Chỉ dùng memoization khi có **bằng chứng**: một lần render đo được là chậm trong React DevTools Profiler, một component con thực sự nặng (list lớn, biểu đồ, markup đồ sộ), hoặc một dependency của `memo`/effect cần tham chiếu ổn định để chạy đúng.
+
+<Callout variant="tip" title="React Compiler tự động hóa phần lớn việc này">
+  React Compiler (ổn định cho React 19, bật tùy chọn) tự memo hóa component và giá trị tại thời điểm
+  build, nên bạn có thể xóa phần lớn các lệnh <code>useMemo</code>/<code>useCallback</code>/
+  <code>memo</code>
+  thủ công. Nó không làm thay đổi mô hình tư duy ở trên — biết <em>cái gì</em> render lại và{" "}
+  <em>vì sao</em> vẫn là điều giúp bạn đọc Profiler và hiểu compiler đang làm gì.
+</Callout>
+
+## Tóm lại
+
+- Một component render lại khi state của nó đổi, cha render lại, hoặc một context nó đọc đổi.
+- Re-render là việc của render phase; React vẫn chỉ commit phần DOM khác biệt. Đa số re-render là vô hại.
+- `React.memo` bỏ qua render lại khi props bằng (nông) — chỉ hữu ích với props ổn định.
+- `useMemo` cache một giá trị: cho tính toán nặng, hoặc để giữ tham chiếu ổn định cho một `memo` child.
+- `useCallback` cache danh tính một hàm — chỉ có ý nghĩa khi một `memo` child hoặc một mảng dependency so sánh nó.
+- Ưu tiên giải pháp cấu trúc (đẩy state xuống, truyền `children`) trước các memo hook; chỉ với tới memoization khi có bằng chứng đo được; và để React Compiler lo phần còn lại.
+
+## Tra cứu nhanh
+
+| Công cụ       | Ghi nhớ                  | Dùng khi                                               |
+| ------------- | ------------------------ | ------------------------------------------------------ |
+| `React.memo`  | lần render của component | cha render thường xuyên nhưng props ít đổi             |
+| `useMemo`     | một giá trị              | tính toán nặng, hoặc cần giữ tham chiếu ổn định        |
+| `useCallback` | danh tính một hàm        | handler được truyền cho `memo` child hoặc dùng làm dep |

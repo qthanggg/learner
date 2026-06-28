@@ -1,0 +1,201 @@
+---
+topic: state-management
+lang: en
+title: "State management & data fetching"
+summary: "The five kinds of state, why a global store isn't your default, where server data really belongs, and a decision checklist."
+category: Advanced
+level: advanced
+order: 160
+readingTime: 13
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## There isn't one "state" — there are several kinds
+
+The biggest mistake in React state management is treating all state the same and dumping it into one global store. State has _kinds_, and each wants a different tool:
+
+- **Local UI state** — is this dropdown open, what's typed in this input, which tab is active. Lives in the component with `useState`/`useReducer`. Most state is this.
+- **Global client state** — theme, current user, a sidebar's collapsed flag. Shared across distant components, but owned by the client.
+- **Server / cache state** — data that lives in a database and you fetched over the network. Lists, profiles, anything async.
+- **URL state** — the current route, query params, filters you want to be shareable and bookmarkable. Owned by the address bar.
+- **Form state** — the values, validation, and submission status of a form. Often local, but a form library (or React 19 actions) can own it.
+
+```
+useState / useReducer    →  local UI state
+Context (+ store lib)     →  global client state
+React Query / SWR         →  server / cache state
+router / searchParams     →  URL state
+form lib / form actions   →  form state
+```
+
+Naming which kind you have usually answers _where it should live_ before you write a line.
+
+<Callout variant="tip" title="Ask 'who owns this?' first">
+  The owner decides the tool. Server data is owned by the server — caching it in a global store
+  means you now maintain two sources of truth and the bugs that come with sync.
+</Callout>
+
+## Don't reach for a global store by default
+
+A common reflex is to install Redux (or Zustand) on day one and put everything there. Resist it. Most state is local, and React already manages local state beautifully. A global store adds boilerplate, indirection, and makes components harder to reuse and test in isolation.
+
+Start at the bottom and only move state up when something _forces_ you to:
+
+1. `useState` inside the component.
+2. **Lift state up** to the closest common parent when two siblings need it.
+3. Pass it down as props (or via `children`) — prop drilling two levels is fine.
+4. Only when drilling gets painful across _many_ layers, reach for Context or a store.
+
+```jsx
+// Lifting state up: the parent owns it, both children read/write it.
+function FilterPanel() {
+  const [query, setQuery] = useState("")
+  return (
+    <>
+      <SearchBox value={query} onChange={setQuery} />
+      <Results query={query} />
+    </>
+  )
+}
+```
+
+This "single source of truth per piece of state" is the core lesson of _Sharing state between components_ in the React docs: for each value, exactly one component owns it and passes it down. You'll move state up and back down as the app evolves — that's normal, not a failure.
+
+## Context for modest global state
+
+For genuinely global-but-low-frequency client state — theme, locale, the authenticated user — React Context is the built-in answer. No library needed:
+
+```jsx
+const ThemeContext = createContext("light")
+
+function App() {
+  const [theme, setTheme] = useState("light")
+  return (
+    <ThemeContext.Provider value={{ theme, setTheme }}>
+      <Layout />
+    </ThemeContext.Provider>
+  )
+}
+
+// Anywhere below, no prop drilling:
+const { theme } = useContext(ThemeContext)
+```
+
+The catch: **every consumer re-renders when the context value changes.** That's fine for a theme that flips rarely; it's a performance trap for state that updates many times per second (mouse position, form keystrokes shared widely). Two mitigations:
+
+- **Split contexts by update frequency.** Keep the rarely-changing `setTheme` dispatcher in one context and the fast-changing value in another, so a component that only dispatches doesn't re-render on every value change.
+- **Memoize the value object** so it isn't a new reference each render:
+
+```jsx
+const value = useMemo(() => ({ theme, setTheme }), [theme])
+return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
+```
+
+<Callout variant="warn" title="Context is not a state manager">
+  Context only *transports* a value down the tree — it has no built-in optimization for partial
+  updates. For hot, frequently-changing global state, a real store (which lets components subscribe
+  to slices) avoids the re-render storm.
+</Callout>
+
+## When you actually want a store: Zustand, Redux Toolkit, Jotai
+
+If you have substantial global client state that changes often or is read by many unrelated components, a dedicated store earns its keep — chiefly because stores let a component subscribe to _just the slice it cares about_ and skip re-renders otherwise.
+
+- **Zustand** — minimal, hook-based, almost no boilerplate. A great default for most apps that need a store at all.
+- **Redux Toolkit** — the modern, batteries-included Redux. Verbose-by-design, but the structured actions/reducers, DevTools time-travel, and middleware shine in large teams and complex flows.
+- **Jotai** — atomic state: tiny independent atoms you compose. Fits well when state is fine-grained and derived.
+
+```jsx
+// Zustand — define a store, subscribe to a slice.
+const useCart = create((set) => ({
+  items: [],
+  add: (item) => set((s) => ({ items: [...s.items, item] })),
+}))
+
+function CartBadge() {
+  // Re-renders only when `count` changes, not on every cart mutation.
+  const count = useCart((s) => s.items.length)
+  return <span>{count}</span>
+}
+```
+
+There's no single winner — pick based on team size, complexity, and how much structure you want imposed. The selector (`(s) => s.items.length`) is the key idea: subscribing to a derived slice is what keeps a store cheaper than Context for hot state.
+
+## Server state belongs in a data-fetching cache
+
+This is the highest-leverage idea on the page. Data you fetch from an API is _not_ client state — it's a local cache of something owned elsewhere. Putting it in Redux/Zustand means you hand-write loading flags, error handling, caching, refetching, and invalidation for every endpoint. That's thousands of lines reinventing a cache, badly.
+
+Use a server-state library — **React Query (TanStack Query)** or **SWR** — instead:
+
+```jsx
+function Profile({ id }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["user", id],
+    queryFn: () => fetch(`/api/users/${id}`).then((r) => r.json()),
+  })
+
+  if (isLoading) return <Spinner />
+  if (error) return <Error />
+  return <h1>{data.name}</h1>
+}
+```
+
+One hook gives you loading/error states, deduped requests, background refetching, and a shared cache keyed by `queryKey` — so two components asking for the same user trigger one network call.
+
+<Callout variant="note" title="What about Server Components and use()?">
+  In a React 19 / RSC framework, some server data is fetched in a Server Component with plain
+  `async`/`await`, or streamed to the client and read with `use(promise)`. That covers initial loads
+  well. For client-side caching, refetching, and mutations you'll still reach for React Query or SWR
+  — the two approaches complement each other.
+</Callout>
+
+## Key concepts: caching, invalidation, stale-while-revalidate
+
+These libraries are built on a few ideas worth knowing for interviews:
+
+- **Caching** — responses are stored under a key. Components reading the same key share data instantly; no duplicate fetches.
+- **Stale-while-revalidate** — show the cached (possibly stale) data _immediately_ for a snappy UI, then refetch in the background and swap in fresh data when it arrives. The name SWR comes straight from this HTTP strategy.
+- **Invalidation** — after a mutation (say, editing a profile), you mark related cache entries stale so they refetch. `queryClient.invalidateQueries(["user", id])` keeps the UI consistent without manual state juggling.
+- **Stale time vs cache (gc) time** — how long data is considered fresh (no refetch) versus how long it's kept in memory after nothing uses it.
+
+```jsx
+const mutation = useMutation({
+  mutationFn: updateUser,
+  onSuccess: () => queryClient.invalidateQueries({ queryKey: ["user", id] }),
+})
+```
+
+## URL state: the underused store
+
+Filters, the active tab, pagination, a search term — anything a user should be able to **bookmark, share, or restore on refresh** belongs in the URL, not in React state. The router (or `URLSearchParams`) becomes the source of truth:
+
+```jsx
+// The query string owns the filter; the component just reads and writes it.
+const [params, setParams] = useSearchParams()
+const sort = params.get("sort") ?? "newest"
+
+;<select value={sort} onChange={(e) => setParams({ sort: e.target.value })}>
+  …
+</select>
+```
+
+Putting this state in `useState` instead is a common bug: refresh the page and the user's filters vanish. If it belongs in a shareable link, the URL owns it.
+
+## A decision checklist
+
+Walk these in order; stop at the first "yes":
+
+1. **Does only one component use it?** → `useState` / `useReducer`. Done.
+2. **Do a couple of nearby components share it?** → Lift it to their common parent and pass props.
+3. **Should it survive refresh or be shareable?** → Put it in the **URL**.
+4. **Does it come from a server / database?** → A fetching cache (**React Query / SWR**), or RSC + `use()`. Never a global store.
+5. **Is it global client state read in many places but changing rarely?** → **Context** (memoized / split).
+6. **Is it global client state, hot, and read by many unrelated components?** → A **store** (Zustand / RTK / Jotai) with selectors.
+7. **Is it form values + submission?** → Local state, a form library, or React 19 **form actions** + `useActionState`.
+
+<Callout variant="tip" title="The practical rule of thumb">
+  Local first (`useState`). Lift + Context for modest global state. A store (Zustand/RTK/Jotai) only
+  when many components share frequently-changing client state. Shareable state goes in the **URL**.
+  And **always** put server data in React Query / SWR (or RSC) — never a global store.
+</Callout>

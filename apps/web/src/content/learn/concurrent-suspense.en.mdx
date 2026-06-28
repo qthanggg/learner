@@ -1,0 +1,221 @@
+---
+topic: concurrent-suspense
+lang: en
+title: "Suspense, lazy & concurrent UI"
+summary: "Code-splitting with React.lazy, Suspense for data, and the concurrent hooks — useTransition, startTransition, and useDeferredValue — that keep the UI responsive under load."
+category: Advanced
+level: advanced
+order: 140
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Suspense: declaring a loading boundary
+
+`Suspense` lets a component "wait" for something before rendering, and shows a `fallback` in the meantime. Instead of scattering `isLoading` checks through your tree, you wrap a part of the UI in a boundary and declare what to show while it isn't ready:
+
+```jsx
+<Suspense fallback={<Spinner />}>
+  <Profile />
+</Suspense>
+```
+
+While anything inside `<Profile>` is _suspending_, React renders the fallback. When the work resolves, React swaps in the real content. The boundary catches suspension the way an error boundary catches errors — the nearest `Suspense` ancestor handles it, so you control loading UI at whatever granularity you want. You can nest boundaries to reveal content progressively: an outer boundary for the page shell, inner ones for individual panels that stream in.
+
+<Callout variant="note" title="Only Suspense-enabled sources trigger it">
+  A component suspends only when it reads from a Suspense-integrated source — a lazy import, a
+  framework data loader, or a promise read via the <code>use</code> hook. A plain
+  <code>useEffect</code> + <code>fetch</code> does <em>not</em> trip a boundary; you still render
+  your own loading state for that pattern.
+</Callout>
+
+## React.lazy + Suspense for code-splitting
+
+The most common use of Suspense is splitting JavaScript out of the initial bundle. `React.lazy` takes a function that returns a dynamic `import()` and gives you back a component that loads on first render:
+
+```jsx
+import { lazy, Suspense } from "react"
+
+const Settings = lazy(() => import("./Settings.tsx"))
+
+function App() {
+  return (
+    <Suspense fallback={<PagePlaceholder />}>
+      <Settings />
+    </Suspense>
+  )
+}
+```
+
+The `Settings` chunk isn't downloaded until `<Settings />` actually renders. Until the module arrives, the component suspends and the nearest `Suspense` shows its fallback. This is how you keep the initial load small and defer rarely-used routes, modals, or heavy widgets (a rich text editor, a charting library) out of the critical path.
+
+```jsx
+// A modal whose code only downloads when the user opens it:
+const HelpDialog = lazy(() => import("./HelpDialog.tsx"))
+
+function Toolbar() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button onClick={() => setOpen(true)}>Help</button>
+      {open && (
+        <Suspense fallback={<Spinner />}>
+          <HelpDialog onClose={() => setOpen(false)} />
+        </Suspense>
+      )}
+    </>
+  )
+}
+```
+
+<Callout variant="tip" title="Put the boundary where the layout should stay">
+  Place the fallback so the surrounding shell (nav, sidebar) keeps rendering while only the lazy
+  region shows a placeholder. One giant boundary at the root means the whole page flashes a spinner
+  on every navigation. Declare <code>lazy</code> components at module scope, never inside another
+  component — declaring them during render creates a new type each time and remounts everything.
+</Callout>
+
+## Suspense for data
+
+Suspense isn't only for code. A component can suspend while **data** loads, too — if it reads from a source that knows how to "throw a promise" to React. You rarely wire this up by hand; frameworks and libraries do it for you:
+
+- **React Server Components** (Next.js App Router and similar) `await` data on the server and stream HTML, with `Suspense` marking the streamed-in chunks.
+- The **`use` hook** (React 19) unwraps a promise inside a component; if the promise is pending, the component suspends.
+- Data libraries like React Query or Relay expose Suspense modes that integrate with the same boundary.
+
+```jsx
+// React 19: use() reads a promise; the component suspends until it resolves.
+import { use, Suspense } from "react"
+
+function Comments({ commentsPromise }) {
+  const comments = use(commentsPromise)
+  return comments.map((c) => <p key={c.id}>{c.text}</p>)
+}
+
+// Parent renders the fallback while the promise is pending:
+;<Suspense fallback={<p>Loading comments…</p>}>
+  <Comments commentsPromise={promise} />
+</Suspense>
+```
+
+<Callout variant="warn" title="Don't create the promise during render">
+  Suspense-for-data works when the promise is created <em>outside</em> the suspending render (passed
+  as a prop, cached, or produced by a framework loader). Calling <code>fetch()</code> directly in
+  the component body makes a new promise every render — the component suspends, re-renders, makes
+  another promise, and loops forever.
+</Callout>
+
+## Urgent vs. transition updates
+
+Concurrent React splits state updates into two priorities:
+
+- **Urgent updates** must feel instant — typing in a field, toggling a checkbox, dragging a slider. The UI should reflect them on the very next frame.
+- **Transition updates** can take a moment — filtering a 10,000-row table, switching tabs that render a heavy view, navigating to a new page. The user tolerates a slight delay as long as the urgent interaction stays snappy.
+
+The problem with the old model: rendering a big transition would block the urgent input, so typing felt frozen. Concurrent rendering lets React work on the transition in interruptible chunks and **interrupt it** whenever an urgent update arrives — keeping input responsive while the expensive view catches up.
+
+## useTransition and startTransition
+
+`useTransition` gives you a way to mark an update as non-urgent, plus an `isPending` flag for the in-between state:
+
+```jsx
+const [isPending, startTransition] = useTransition()
+const [query, setQuery] = useState("")
+const [results, setResults] = useState([])
+
+function onChange(e) {
+  const next = e.target.value
+  setQuery(next) // urgent: the input updates immediately
+
+  startTransition(() => {
+    setResults(search(next)) // non-urgent: may be interrupted by more typing
+  })
+}
+
+return (
+  <>
+    <input value={query} onChange={onChange} />
+    {isPending && <Spinner />}
+    <Results items={results} />
+  </>
+)
+```
+
+The keystroke updates `query` urgently, so the input never lags. The expensive `setResults` runs inside `startTransition`, so React renders it at low priority and abandons stale work if you keep typing. `isPending` is `true` while that transition is rendering — perfect for a subtle loading indicator without blocking the input.
+
+A classic use is navigation: wrapping the page switch in a transition lets React keep the current page interactive (instead of instantly flashing a Suspense fallback) while the next page loads:
+
+```jsx
+function navigate(url) {
+  startTransition(() => setPage(url))
+}
+```
+
+`startTransition` is also available as a standalone import for cases where you don't need the `isPending` flag (or are outside a component):
+
+```jsx
+import { startTransition } from "react"
+startTransition(() => setTab("details"))
+```
+
+<Callout variant="warn" title="The update must be synchronous inside startTransition">
+  React only treats state updates that happen <em>synchronously</em> during the
+  <code>startTransition</code> callback as part of the transition. A <code>setState</code> called
+  later inside <code>setTimeout</code> or after an <code>await</code> loses the transition priority.
+  For async work, do the await first and wrap the resulting state update.
+</Callout>
+
+<Callout variant="note" title="Transitions don't make code faster">
+  Marking an update as a transition doesn't speed up the render — it changes its <em>priority</em>.
+  The heavy work still happens; React just keeps it from blocking urgent updates and lets newer
+  input cut in line.
+</Callout>
+
+## useDeferredValue
+
+`useDeferredValue` solves the same problem from the _value_ side. You hand it a value, and it returns a version that "lags behind" during urgent updates, catching up in a transition:
+
+```jsx
+function SearchResults({ query }) {
+  const deferredQuery = useDeferredValue(query)
+  // Re-renders driven by the new query are deprioritized;
+  // the input stays interactive while this recomputes.
+  const list = useMemo(() => search(deferredQuery), [deferredQuery])
+  return <Results items={list} />
+}
+```
+
+On the first render `useDeferredValue` returns the value you gave it. On urgent updates it returns the _previous_ value and schedules a background re-render with the new one — which React can interrupt if another urgent update arrives.
+
+During the lag, `deferredQuery` holds the previous value, so React shows stale-but-complete content instead of a blank fallback. You can even fade it while it catches up:
+
+```jsx
+const isStale = query !== deferredQuery
+return <div style={{ opacity: isStale ? 0.5 : 1 }}>{/* results */}</div>
+```
+
+## Choosing between them
+
+- Reach for **`useTransition`** when **you own the state update** and want an `isPending` flag — search-as-you-type where you control `setResults`, tab/page navigation, applying a filter.
+- Reach for **`useDeferredValue`** when the slow update is driven by a **value coming down as a prop** and you can't wrap the `setState` yourself (often because the state lives in a parent or a library). You defer the value at the point of consumption.
+
+They are complementary, not competing: both lean on the same interruptible-render machinery, just from the update side versus the value side.
+
+## Recap
+
+- `Suspense` declares a `fallback` for a region whose children are suspending; the nearest boundary handles it, and you can nest boundaries for progressive loading.
+- `React.lazy` code-splits a component behind a dynamic `import()`; pair it with `Suspense` to defer rarely-used or heavy code out of the initial bundle.
+- Suspense for data works when a component reads a Suspense-integrated source (RSC, the `use` hook, a data library) — create the promise outside render, never inside it.
+- Concurrent React separates urgent updates from transitions so heavy work never blocks input.
+- `useTransition`/`startTransition` mark an update non-urgent (with an optional `isPending` flag) when you own the `setState`; `useDeferredValue` defers a value you receive as a prop. Neither makes code faster — they change priority.
+
+## Quick reference
+
+| Tool               | What it does                                         | Reach for it when                                    |
+| ------------------ | ---------------------------------------------------- | ---------------------------------------------------- |
+| `React.lazy`       | Code-splits a component behind a dynamic import      | A route/modal/widget shouldn't be in the main bundle |
+| `Suspense`         | Shows a fallback while children suspend              | Lazy code or Suspense-aware data is loading          |
+| `useTransition`    | Marks updates non-urgent, gives `isPending`          | You own a state update that's expensive to render    |
+| `startTransition`  | Same, without the pending flag / outside a component | Quick low-priority update, no UI for pending state   |
+| `useDeferredValue` | Returns a deferred copy of a value                   | The slow update comes in as a prop you don't control |

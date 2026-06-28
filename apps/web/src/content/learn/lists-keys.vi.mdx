@@ -1,0 +1,184 @@
+---
+topic: lists-keys
+lang: vi
+title: "Render danh sách & key"
+summary: "Biến mảng thành giao diện bằng map, filter và sort, và nắm vững prop key — chi tiết quyết định danh sách giữ đúng state, focus và danh tính."
+category: Fundamentals
+level: beginner
+order: 40
+readingTime: 11
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Biến mảng thành element
+
+JSX không có vòng lặp `for`. Để render một danh sách, bạn lấy mảng dữ liệu rồi `map()` mỗi phần tử thành một element. Vì `map()` trả về một mảng mới, và React biết cách render mảng element, nên mảng đó thả thẳng vào JSX là chạy:
+
+```jsx
+function TodoList({ todos }) {
+  return (
+    <ul>
+      {todos.map((todo) => (
+        <li key={todo.id}>{todo.text}</li>
+      ))}
+    </ul>
+  )
+}
+```
+
+Cặp `{ }` chứa một biểu thức JavaScript, và `todos.map(...)` chỉ là biểu thức cho ra một mảng các `<li>`. Nếu muốn, hãy tách mảng ra một biến trước — đôi khi rõ ràng hơn với các phần tử dài:
+
+```jsx
+function TodoList({ todos }) {
+  const items = todos.map((todo) => <li key={todo.id}>{todo.text}</li>)
+  return <ul>{items}</ul>
+}
+```
+
+## Lọc và sắp xếp
+
+Vì tất cả đều là JavaScript thuần, bạn có thể nối `.filter()` trước `.map()` để render một phần, hoặc sort một bản sao trước:
+
+```jsx
+function TodoList({ todos }) {
+  const visible = todos
+    .filter((t) => !t.done) // chỉ giữ những cái chưa xong
+    .map((t) => <li key={t.id}>{t.text}</li>)
+
+  return <ul>{visible}</ul>
+}
+```
+
+<Callout variant="tip" title="Sort thì sort trên bản sao">
+  `sort()` và `reverse()` thay đổi (mutate) mảng tại chỗ. Hãy gọi `todos.slice().sort(...)` (hoặc
+  `[...todos].sort(...)`) để không vô tình mutate props hay state — mutate cái nào cũng là bug.
+</Callout>
+
+## Prop key dùng để làm gì
+
+Mỗi element sinh ra trong `map()` cần một `key`. Key là một chuỗi hoặc số định danh duy nhất phần tử đó **trong nhóm anh em** của nó. React dùng key để khớp element giữa các lần render: khi danh sách thay đổi, key cho React biết "đây vẫn là phần tử cũ — cập nhật nó" hay "đây là phần tử hoàn toàn mới — tạo mới".
+
+```jsx
+{
+  users.map((user) => <UserRow key={user.id} user={user} />)
+}
+```
+
+Hai quy tắc để key hoạt động đúng:
+
+- **Ổn định (stable)** — cùng một phần tử phải nhận cùng một key qua mọi lần render. Đừng tạo key bằng `Math.random()` hay `Date.now()` trong lúc render; key đổi mỗi lần nghĩa là React vứt bỏ và dựng lại element ở mỗi render (mất state DOM và focus, lại hại hiệu năng).
+- **Duy nhất trong nhóm anh em** — key chỉ cần duy nhất trong cùng một mảng, không cần duy nhất toàn app. Hai danh sách khác nhau hoàn toàn có thể cùng dùng `key={1}`.
+
+Nguồn key tự nhiên nhất là một ID ổn định từ dữ liệu — khoá chính trong database, UUID, hay slug. Nếu dữ liệu thật sự không có ID, bạn có thể sinh một cái duy nhất một lần lúc tạo phần tử (ví dụ một biến đếm tăng dần hoặc `crypto.randomUUID()`) và lưu kèm dữ liệu — chứ không phải trong lúc render.
+
+<Callout variant="warn" title="Một key cho mỗi anh em, không trùng">
+  Hai anh em cùng key sẽ khiến React cảnh báo và hành xử khó lường — nó không phân biệt được hai
+  cái. Key phải duy nhất trong nhóm anh em, kể cả khi dữ liệu gốc vô tình lặp lại một giá trị.
+</Callout>
+
+## Vì sao dùng index làm key lại nguy hiểm
+
+Rất dễ bị cám dỗ viết `key={index}`. Nó tắt được cảnh báo và trông có vẻ ổn — cho đến khi danh sách bị sắp xếp lại, hoặc bạn chèn/xoá ở bất kỳ đâu trừ cuối mảng. Vấn đề: index mô tả một **vị trí**, không phải một **phần tử**. Khi các phần tử di chuyển, ánh xạ vị trí-tới-phần-tử bị lệch, và React khớp nhầm element cũ với element mới.
+
+```jsx
+// 🚨 Lỗi khi danh sách có thể sắp xếp lại, chèn, hoặc xoá ở giữa
+{
+  items.map((item, index) => <input key={index} defaultValue={item.label} />)
+}
+```
+
+Hình dung danh sách `[A, B, C]` render với key theo index là `0, 1, 2`, mỗi dòng có state nội bộ (một input, một toggle đóng/mở, vị trí focus). Xoá `A`, danh sách thành `[B, C]` với key `0, 1`. React thấy key `0` vẫn còn, nên **giữ lại DOM và state vốn của A** và chỉ đổi chữ thành của B. Kết quả: text đã gõ, focus, và state của component dính vào nhầm phần tử.
+
+```
+dữ liệu: [A, B, C]  ──xoá A──▶  [B, C]
+index:    0  1  2                0  1
+React giữ state của node-0 nhưng giờ hiển thị B  →  state của A "rò" sang B
+```
+
+Bug y hệt xuất hiện khi **chèn vào đầu**: thêm `Z` vào trước `[A, B, C]` làm mọi index dịch đi, nên React tưởng mọi dòng đã đổi nội dung trong khi một dòng mới toanh xuất hiện ở cuối — ngược hẳn với điều thực sự xảy ra. Với `key={item.id}` ổn định, React biết chính xác key nào vừa xuất hiện, biến mất, hay còn nguyên, và giữ đúng state cho từng dòng.
+
+<Callout variant="warn" title="Chỉ nên dùng index làm key khi...">
+  danh sách là tĩnh — không bao giờ sắp xếp lại, lọc, hay sửa — và các phần tử không có state hay
+  input form. Nếu bất kỳ điều nào có thể thay đổi, hãy dùng ID thật.
+</Callout>
+
+## Key không phải là prop
+
+Một điều hay gây bất ngờ: `key` được chính React tiêu thụ và **không** được truyền vào component của bạn. Đọc `props.key` trong component con sẽ ra `undefined`. Nếu con cũng cần giá trị đó, hãy truyền lại dưới một tên khác:
+
+```jsx
+{
+  users.map((user) => <UserRow key={user.id} id={user.id} user={user} />)
+}
+
+function UserRow({ id, user }) {
+  // props.key === undefined ở đây — vì vậy ta truyền thêm id
+  return <li>{user.name}</li>
+}
+```
+
+`ref` cũng tương tự — nó là một prop dành riêng, không phải dữ liệu component nhận được.
+
+## Key trên fragment và đặt ở đâu
+
+Key thuộc về **element ngoài cùng được return ở mỗi vòng lặp**, không phải thứ gì lồng bên trong. Nếu mỗi phần tử cần render nhiều thẻ anh em mà không muốn thêm node bao ngoài, dùng dạng đầy đủ của fragment là `<Fragment>` (nhận được key) — dạng viết tắt `<>` thì không:
+
+```jsx
+import { Fragment } from "react"
+
+{
+  questions.map((q) => (
+    <Fragment key={q.id}>
+      <dt>{q.term}</dt>
+      <dd>{q.definition}</dd>
+    </Fragment>
+  ))
+}
+```
+
+Nếu bạn tách dòng thành component riêng, key vẫn nằm ở **chỗ gọi** bên trong `map()`, không bao giờ nằm trong JSX của chính component đó:
+
+```jsx
+// ✅ key trên element được map trả về
+{
+  rows.map((row) => <Row key={row.id} row={row} />)
+}
+
+// 🚨 quá muộn — kết quả của map vẫn không có key
+function Row({ row }) {
+  return <li key={row.id}>{row.label}</li>
+}
+```
+
+## Key còn dùng để reset state
+
+Key làm nhiều hơn là sắp thứ tự danh sách — nó là cách React quyết định một component ở một vị trí cho trước có phải "cùng một" instance qua các lần render hay không. Đổi key của một component và React **huỷ instance cũ rồi mount một cái mới toanh**, vứt bỏ state của nó. Đây là một tính năng bạn có thể dùng có chủ đích.
+
+```jsx
+// Reset state nội bộ của form mỗi khi user được chọn thay đổi:
+<ProfileForm key={selectedUserId} user={user} />
+```
+
+Khi `selectedUserId` đổi, `ProfileForm` được mount lại — `useState` của nó khởi tạo lại, bản nháp xoá sạch, focus reset. Không có key, React sẽ tái dùng cùng instance và bản nháp cũ vẫn nán lại.
+
+<Callout variant="note" title="Cùng vị trí = giữ lại, khác key = reset">
+  React giữ state cho một component chừng nào nó còn render ở cùng vị trí với cùng key. Để giữ state
+  qua một thay đổi, hãy giữ key ổn định; để reset state có chủ đích, hãy đổi key.
+</Callout>
+
+## Mô hình tư duy cần nhớ
+
+> Key là danh tính của một phần tử xuyên thời gian. React dùng nó để quyết định giữ lại, di chuyển,
+> reset, hay huỷ bỏ thứ gì giữa các lần render.
+
+Tóm tắt nhanh:
+
+- Render danh sách bằng cách `map` dữ liệu thành element; `filter`/`sort` (trên bản sao) chỉ là JavaScript.
+- Mỗi element được map cần một `key` **ổn định** và **duy nhất trong nhóm anh em**.
+- Ưu tiên ID thật từ dữ liệu; chỉ dùng index của mảng cho danh sách tĩnh, không state.
+- `key` (và `ref`) là prop dành riêng — chúng không được truyền vào component như prop.
+- Đặt key trên element ngoài cùng được return; dùng `<Fragment key=...>` cho nhiều thẻ anh em.
+- Đổi key của một component sẽ reset state của nó — tiện để xoá form khi chuyển ngữ cảnh.
+
+Hãy cho mỗi phần tử trong danh sách một danh tính ổn định và duy nhất lấy từ dữ liệu, và hầu hết các bug "danh sách của tôi chạy lạ lạ" — nhập nhầm ô, mất focus, state sót lại — sẽ tự biến mất.

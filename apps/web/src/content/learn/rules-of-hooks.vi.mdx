@@ -1,0 +1,161 @@
+---
+topic: rules-of-hooks
+lang: vi
+title: "Các Rules of Hooks"
+summary: "Hai quy tắc nhỏ giúp hook hoạt động — cơ chế call-order giải thích vì sao vi phạm chúng làm hỏng state, và cách linter kiểm tra giúp bạn."
+category: Hooks
+level: intermediate
+order: 110
+readingTime: 9
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Hai quy tắc, không ngoại lệ
+
+Mọi hook — `useState`, `useEffect`, `useRef`, và bất kỳ custom hook nào — đều phải tuân theo hai quy tắc:
+
+1. **Chỉ gọi hook ở top level.** Không bao giờ đặt trong điều kiện, vòng lặp, hàm lồng nhau, hay sau một `return` sớm.
+2. **Chỉ gọi hook từ hàm React.** Tức là từ function component hoặc custom hook khác — không phải hàm JavaScript thường, event handler, hay class component.
+
+```jsx
+function Profile({ userId }) {
+  const [user, setUser] = useState(null) // ✅ top level
+  useEffect(() => {
+    fetchUser(userId).then(setUser)
+  }, [userId]) // ✅ top level
+  // ...
+}
+```
+
+Hai quy tắc này nghe có vẻ tuỳ tiện cho tới khi bạn hiểu hook được lưu thế nào. Lúc đó chúng trở nên hiển nhiên.
+
+## Vì sao: hook được theo dõi bằng thứ tự gọi
+
+React **không** biết _tên_ hook của bạn. Nó chẳng hề biết bạn gọi cái gì đó là `user` hay `count`. Bên trong, mỗi instance component giữ một danh sách có thứ tự các "ô" (slot) hook, và React duyệt danh sách đó **đúng theo thứ tự các hook được gọi**, từng index một.
+
+```jsx
+function Form() {
+  const [name, setName] = useState("") // slot 0
+  const [age, setAge] = useState(0) //    slot 1
+  useEffect(() => {}, []) //               slot 2
+}
+```
+
+Ở lần render đầu, React tạo các slot 0, 1, 2. Ở mọi lần render sau, nó kỳ vọng **cùng những hook đó theo cùng thứ tự**, nên slot 0 vẫn ứng với `name`, slot 1 với `age`, v.v. Thứ tự _chính là_ danh tính. Không có key, không có nhãn — chỉ có vị trí.
+
+Một hình dung đơn giản hoá về thứ React giữ bên trong:
+
+```js
+// về mặt khái niệm, cho mỗi instance component:
+const slots = [
+  { type: "state", value: "" }, // 0 → name
+  { type: "state", value: 0 }, //  1 → age
+  { type: "effect", deps: [] }, // 2 → effect
+]
+let cursor = 0 // reset về 0 ở đầu mỗi render, rồi ++ sau mỗi lời gọi hook
+```
+
+<Callout variant="note" title="Thứ tự gọi, không phải dòng code">
+  React dựa vào thứ tự thực thi của hook lúc runtime, chứ không phải vị trí trong file. Vì vậy bất
+  cứ thứ gì có thể làm đổi số lượng hoặc trình tự giữa các lần render — một điều kiện, một vòng lặp,
+  một return sớm — đều bị cấm.
+</Callout>
+
+## Điều gì hỏng khi bạn vi phạm
+
+Đặt một hook sau một điều kiện và danh sách slot sẽ lệch ngay khi điều kiện đổi:
+
+```jsx
+function Profile({ isAdmin }) {
+  if (isAdmin) {
+    const [perms, setPerms] = useState([]) // 🐛 hook có điều kiện
+  }
+  const [name, setName] = useState("") // slot xê dịch giữa các render
+}
+```
+
+Khi `isAdmin` là `true`, `useState([])` chiếm slot 0 và `name` chiếm slot 1. Khi nó đổi thành `false`, cursor chỉ tới đúng một hook, nên `name` đột nhiên nhận slot 0 — và đọc lại đúng cái _mảng_ từng thuộc về `perms`. State bị tráo lẫn, effect chạy với dependency sai, và bạn thường gặp lỗi runtime:
+
+> Rendered fewer hooks than expected. This may be caused by an accidental early return statement.
+
+Thông báo đó là React phát hiện lần render này gọi ít hook hơn lần trước: số slot không còn khớp, nên nó không thể ghép an toàn được nữa.
+
+Điều tương tự xảy ra với vòng lặp, `return` sớm trước một hook, và hook bên trong callback hay `try/catch`. Nếu số lượng hoặc thứ tự lời gọi hook có thể khác nhau giữa hai lần render, ánh xạ sẽ hỏng.
+
+```jsx
+// 🐛 tất cả đều không hợp lệ
+if (cond) useEffect(...)              // có điều kiện
+for (const x of list) useState(x)     // vòng lặp — số lượng phụ thuộc độ dài list
+function handleClick() { useState(0) } // không phải hàm React
+if (loading) return <Spinner />        // return sớm TRƯỚC các hook bên dưới nó
+```
+
+Cái cuối cùng là nguyên nhân thực tế phổ biến nhất của "rendered fewer hooks": một `return` sớm đặt _phía trên_ vài hook của component. Hãy đưa mọi hook lên trên mọi return sớm.
+
+## Cách làm cho đúng
+
+Giữ hook luôn được gọi vô điều kiện và đặt **điều kiện vào bên trong** nó:
+
+```jsx
+function Profile({ isAdmin }) {
+  const [name, setName] = useState("")
+  const [perms, setPerms] = useState([]) // luôn được gọi
+
+  useEffect(() => {
+    if (!isAdmin) return // điều kiện nằm trong effect
+    loadPermissions().then(setPerms)
+  }, [isAdmin])
+
+  if (!name) return <Spinner /> // ✅ return sớm SAU tất cả hook
+  // ...
+}
+```
+
+Nếu bạn cần _số lượng_ hook khác nhau cho các trường hợp khác nhau, hãy tách thành các component riêng và để component cha chọn render cái nào — khi đó mỗi component có danh sách hook ổn định của riêng nó. Để render một danh sách, hãy tách ra một component con gọi hook, thay vì gọi hook trong vòng lặp:
+
+```jsx
+// ❌ hook trong vòng lặp
+function List({ ids }) {
+  return ids.map((id) => {
+    const data = useFetch(id) // 🐛 số lượng phụ thuộc ids.length
+    return <li>{data.name}</li>
+  })
+}
+
+// ✅ mỗi Row có danh sách hook ổn định của riêng nó
+function Row({ id }) {
+  const data = useFetch(id)
+  return <li>{data.name}</li>
+}
+function List({ ids }) {
+  return ids.map((id) => <Row key={id} id={id} />)
+}
+```
+
+<Callout variant="warn" title="Custom hook cũng theo các quy tắc này">
+  Quy tắc áp dụng cho *mọi* hook, kể cả hook bạn tự viết. Một custom hook gọi `useState` bên trong
+  `if` cũng hỏng hệt như component làm vậy — danh sách slot mà nó đóng góp vẫn phải cùng hình dạng ở
+  mỗi render. Gọi một custom hook có điều kiện cũng không hợp lệ y như vậy.
+</Callout>
+
+## Để linter lo việc kiểm tra
+
+Bạn không cần tự canh chừng việc này. `eslint-plugin-react-hooks` đi kèm hai rule:
+
+- **`rules-of-hooks`** — báo lỗi mọi hook bị gọi có điều kiện, trong vòng lặp, hay từ hàm không phải React.
+- **`exhaustive-deps`** — kiểm tra dependency array của effect / `useMemo` / `useCallback`.
+
+<Callout variant="tip" title="Tin vào lỗi lint">
+  Quy ước hook bắt đầu bằng `use` chính là thứ giúp linter nhận ra chúng. Hãy đặt tên custom hook là
+  `useSomething` và bật plugin lên — nó bắt được những lỗi này trước khi chúng kịp lên trình duyệt.
+  Nếu linter báo một lời gọi hook, hãy tái cấu trúc code; đừng tắt rule.
+</Callout>
+
+## Tóm tắt
+
+- Hai quy tắc: chỉ gọi hook ở **top level**, và chỉ từ **hàm React** (component hoặc custom hook).
+- React nhận diện hook bằng **thứ tự gọi / index slot**, không phải bằng tên — thứ tự là danh tính duy nhất chúng có.
+- Điều kiện, vòng lặp, và return sớm phía trên một hook làm đổi thứ tự đó và hỏng ánh xạ slot, thường hiện ra dưới dạng _"Rendered fewer hooks than expected."_
+- Sửa bằng cách đưa điều kiện _vào trong_ hook, đặt return sớm _sau_ tất cả hook, hoặc tách ra một component con.
+- Hãy bật `eslint-plugin-react-hooks` và đặt tên custom hook là `useSomething` để nó giúp được bạn.

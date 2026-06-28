@@ -1,0 +1,321 @@
+---
+topic: patterns
+lang: en
+title: "Component patterns"
+summary: "Composition, compound components, render props, HOCs, controlled vs uncontrolled, and the state-reducer pattern — which are modern and which are legacy."
+category: Advanced
+level: advanced
+order: 150
+readingTime: 13
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+A "pattern" in React is just a repeatable shape for sharing **markup**, **state**, or **logic** between components. The hard part isn't memorizing them — it's knowing which one fits the problem, and which ones modern React has quietly retired. This page walks the catalogue from the everyday (composition) to the historical (HOCs), labelling each as **modern** or **legacy** as we go.
+
+## Composition with `children`
+
+The most fundamental React pattern isn't a clever abstraction — it's just passing JSX as `children`. A component that accepts `children` becomes a generic container without knowing or caring what goes inside it:
+
+```jsx
+function Card({ title, children }) {
+  return (
+    <section className="card">
+      <h3>{title}</h3>
+      <div className="card-body">{children}</div>
+    </section>
+  )
+}
+
+// Anything can live inside — Card stays decoupled from its content.
+;<Card title="Profile">
+  <Avatar user={user} />
+  <Bio text={user.bio} />
+</Card>
+```
+
+This solves what other frameworks call "slots." When you need multiple holes, pass JSX through **named props** instead of (or alongside) `children`:
+
+```jsx
+function Layout({ header, sidebar, children }) {
+  return (
+    <div className="layout">
+      <header>{header}</header>
+      <aside>{sidebar}</aside>
+      <main>{children}</main>
+    </div>
+  )
+}
+
+;<Layout header={<Nav />} sidebar={<Filters />}>
+  <PostList />
+</Layout>
+```
+
+Composition is the default answer to "how do I make this reusable?" — reach for it before contexts, render props, or anything fancier. It also keeps components **open for extension**: the caller injects content, so `Card` never needs a new prop for every variation.
+
+<Callout variant="tip" title="Composition beats configuration">
+  Before adding a tenth boolean prop to a component, ask whether the caller could just pass
+  `children` or a JSX prop instead. Slots scale; flag soup doesn't.
+</Callout>
+
+## Compound components
+
+Compound components let a set of pieces share implicit state while the consumer arranges them freely. `<Tabs>`, `<Accordion>`, `<Select>` — the classic shape is a parent that holds state and children that read it through context:
+
+```jsx
+import { createContext, useContext, useState } from "react"
+
+const TabsContext = createContext(null)
+
+function Tabs({ defaultValue, children }) {
+  const [active, setActive] = useState(defaultValue)
+  return <TabsContext.Provider value={{ active, setActive }}>{children}</TabsContext.Provider>
+}
+
+function useTabs() {
+  const ctx = useContext(TabsContext)
+  if (!ctx) throw new Error("<Tabs.Tab> must be used inside <Tabs>")
+  return ctx
+}
+
+function TabList({ children }) {
+  return <div role="tablist">{children}</div>
+}
+
+function Tab({ value, children }) {
+  const { active, setActive } = useTabs()
+  return (
+    <button role="tab" aria-selected={active === value} onClick={() => setActive(value)}>
+      {children}
+    </button>
+  )
+}
+
+function TabPanel({ value, children }) {
+  const { active } = useTabs()
+  return active === value ? <div role="tabpanel">{children}</div> : null
+}
+
+Tabs.List = TabList
+Tabs.Tab = Tab
+Tabs.Panel = TabPanel
+```
+
+The consumer writes declarative markup and never wires up state by hand:
+
+```jsx
+<Tabs defaultValue="overview">
+  <Tabs.List>
+    <Tabs.Tab value="overview">Overview</Tabs.Tab>
+    <Tabs.Tab value="specs">Specs</Tabs.Tab>
+  </Tabs.List>
+  <Tabs.Panel value="overview">…</Tabs.Panel>
+  <Tabs.Panel value="specs">…</Tabs.Panel>
+</Tabs>
+```
+
+This is a modern, recommended pattern — it's how most headless UI libraries (Radix, React Aria, Headless UI) expose their components. The `useTabs` guard hook is worth copying: it turns "used outside the provider" from a confusing `null` crash into a clear error.
+
+<Callout variant="note" title="Context value identity">
+  The provider's `value={{ active, setActive }}` is a fresh object every render. For a tabs widget
+  that's fine. If a compound component's context updates on a hot path, memoize the value or split
+  it so consumers don't all re-render together.
+</Callout>
+
+## Render props
+
+A render prop is a prop whose value is a function that returns JSX. The component owns some logic and hands the result back to the caller to render:
+
+```jsx
+function MouseTracker({ render }) {
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  return <div onMouseMove={(e) => setPos({ x: e.clientX, y: e.clientY })}>{render(pos)}</div>
+}
+
+// Caller decides what to draw with the shared x/y.
+;<MouseTracker
+  render={({ x, y }) => (
+    <p>
+      {x}, {y}
+    </p>
+  )}
+/>
+```
+
+Render props were the pre-hooks way to share _stateful logic_. Most cases that once needed them are now cleaner as a custom hook (`const pos = useMousePosition()`):
+
+```jsx
+// Same capability, no wrapper element, no nesting.
+function useMousePosition() {
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  useEffect(() => {
+    const onMove = (e) => setPos({ x: e.clientX, y: e.clientY })
+    window.addEventListener("mousemove", onMove)
+    return () => window.removeEventListener("mousemove", onMove)
+  }, [])
+  return pos
+}
+```
+
+Render props are still useful when the shared logic must also **render something** or control _where_ in the tree the consumer's JSX appears — virtualized lists and data-grid libraries still use them to hand you each row's props.
+
+## Higher-order components (HOCs)
+
+An HOC is a function that takes a component and returns a new, enhanced component. `withRouter`, `connect` (old Redux), and `withAuth` are classic examples:
+
+```jsx
+function withUser(Component) {
+  return function WithUser(props) {
+    const user = useContext(UserContext)
+    return <Component {...props} user={user} />
+  }
+}
+
+const Profile = withUser(BaseProfile)
+```
+
+HOCs share logic by _wrapping_, which causes real problems: prop-name collisions, opaque "wrapper hell" in the component tree, lost `ref`s unless you forward them, and awkward typing. **Hooks replaced HOCs for almost everything** — instead of wrapping a component to inject `user`, you just call `useUser()` inside it. No wrapper, no prop indirection, composes linearly.
+
+<Callout variant="note" title="Legacy, not forbidden">
+  You'll still meet HOCs in older codebases and a few libraries (`React.memo` is technically an
+  HOC). Understand them, but write new shared logic as hooks.
+</Callout>
+
+## Controlled vs uncontrolled
+
+This pattern is about _who owns a component's state_. A **controlled** component holds its value in props and reports changes upward; an **uncontrolled** one manages its own internal state and you read it only when needed (via a ref or a callback).
+
+```jsx
+// Controlled — parent owns the value, single source of truth.
+<input value={name} onChange={(e) => setName(e.target.value)} />
+
+// Uncontrolled — the DOM owns the value; read it on submit.
+<input defaultValue="Thang" ref={inputRef} />
+```
+
+The same idea applies to your _own_ components. Designing a reusable `<Toggle>`? Support both: accept an optional `value`/`onChange` (controlled) and fall back to internal state when they're absent (uncontrolled). This is exactly how `<input>` works and is the standard contract for form-like components.
+
+```jsx
+function Toggle({ value, defaultValue, onChange }) {
+  const [internal, setInternal] = useState(defaultValue ?? false)
+  const isControlled = value !== undefined
+  const on = isControlled ? value : internal
+  const toggle = () => {
+    if (!isControlled) setInternal(!on)
+    onChange?.(!on)
+  }
+  return <button aria-pressed={on} onClick={toggle} />
+}
+```
+
+<Callout variant="warn" title="Don't flip between controlled and uncontrolled">
+  Passing `value={undefined}` on one render and a real value on the next makes React switch modes
+  and warn in the console. Decide ownership once: a prop is either always controlled or always
+  uncontrolled for the life of the component. Default uncontrolled inputs with `defaultValue`, never
+  `value={something ?? ""}` that toggles.
+</Callout>
+
+## The `children` trick to avoid re-renders
+
+When a parent re-renders, it re-runs all of its children — _unless_ a child was passed in as `children` (or any JSX prop). React reuses that already-created element, so the child doesn't re-render just because the parent's state changed:
+
+```jsx
+// ExpensiveTree re-renders on every click — it's created inside Parent's render.
+function Parent() {
+  const [n, setN] = useState(0)
+  return (
+    <div onClick={() => setN(n + 1)}>
+      {n}
+      <ExpensiveTree />
+    </div>
+  )
+}
+
+// Now ExpensiveTree is created by App and passed as children.
+// Counter's state change can't touch it — no memo needed.
+function App() {
+  return (
+    <Counter>
+      <ExpensiveTree />
+    </Counter>
+  )
+}
+
+function Counter({ children }) {
+  const [n, setN] = useState(0)
+  return (
+    <div onClick={() => setN(n + 1)}>
+      {n}
+      {children}
+    </div>
+  )
+}
+```
+
+The element passed as `children` is the _same object reference_ across `Counter`'s re-renders, so React bails out of re-rendering that subtree. It's a structural alternative to `React.memo` — fix the tree shape and you often don't need memoization at all.
+
+<Callout variant="note" title="The Compiler changes the calculus">
+  React 19's optional Compiler auto-memoizes for you, so several of these manual tricks matter less
+  in new code. They're still worth understanding: they explain _why_ a re-render happens, which is
+  exactly what lets you read what the Compiler did.
+</Callout>
+
+## The state-reducer pattern
+
+When a component is reusable but its internal state transitions need to be _customizable_ by the caller, the **state-reducer pattern** lets the consumer intercept and override how state changes. The component owns a default reducer; the caller can pass their own to bend specific transitions:
+
+```jsx
+function useToggle({ reducer = defaultReducer } = {}) {
+  const [on, dispatch] = useReducer(reducer, false)
+  const toggle = () => dispatch({ type: "toggle" })
+  return { on, toggle }
+}
+
+function defaultReducer(state, action) {
+  switch (action.type) {
+    case "toggle":
+      return !state
+    default:
+      return state
+  }
+}
+
+// Caller: "after 4 toggles, refuse to turn on again" — without forking the component.
+function App() {
+  const clicks = useRef(0)
+  const { on, toggle } = useToggle({
+    reducer(state, action) {
+      if (action.type === "toggle" && clicks.current >= 4) return state
+      return defaultReducer(state, action)
+    },
+  })
+  return (
+    <button
+      onClick={() => {
+        clicks.current++
+        toggle()
+      }}
+      aria-pressed={on}
+    />
+  )
+}
+```
+
+This is an advanced, mostly library-grade pattern (popularized by Downshift). You rarely need it in app code, but it's the cleanest way to give a reusable component **escape hatches** without exploding its prop surface — the caller customizes behaviour by owning the reducer, not by toggling a dozen flags.
+
+## Recap
+
+- **Sharing markup?** Use `children` and named JSX props — the simplest, most flexible tool. _(modern)_
+- **Sharing grouped state across a set of pieces?** Compound components with context. _(modern)_
+- **Sharing stateful logic?** A custom hook. Render props and HOCs were the pre-hooks answers. _(hooks are modern; HOCs are legacy)_
+- **Render props** survive where logic must also render or place JSX. _(niche-modern)_
+- **Controlled vs uncontrolled** is a design contract — pick one ownership model and stick to it.
+- **`children` reference stability** sidesteps re-renders structurally; the Compiler increasingly does this for you.
+- **State-reducer** hands the caller a customization seam — reach for it only when building reusable primitives.
+
+<Callout variant="tip" title="Pick the pattern by intent">
+  Sharing *markup*? `children`. Sharing *grouped state*? Compound components. Sharing *logic*? A
+  custom hook (not an HOC). Deciding *who owns the value*? The controlled/uncontrolled contract.
+  Letting callers *bend behaviour*? The state-reducer.
+</Callout>

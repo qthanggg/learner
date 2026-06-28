@@ -1,0 +1,267 @@
+---
+topic: usereducer
+lang: en
+title: "useReducer"
+summary: "The reducer pattern, dispatch, migrating from useState, writing clean reducers, immutability, pairing with context, and how it maps onto Redux."
+category: Hooks
+level: intermediate
+order: 90
+readingTime: 9
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## The reducer pattern
+
+`useReducer` is an alternative to `useState` for managing state. Instead of calling a setter with the next value, you **dispatch an action** that describes what happened, and a pure **reducer** function computes the next state:
+
+```js
+// (state, action) => newState
+function reducer(state, action) {
+  switch (action.type) {
+    case "increment":
+      return { count: state.count + 1 }
+    case "decrement":
+      return { count: state.count - 1 }
+    case "set":
+      return { count: action.value }
+    default:
+      throw new Error(`Unknown action: ${action.type}`)
+  }
+}
+```
+
+The reducer is a plain function: same `(state, action)` in, same `newState` out, no side effects. That purity is what makes the logic easy to test and reason about — you can call `reducer(state, action)` in a unit test without rendering anything.
+
+<Callout variant="note" title="Why is it called a reducer?">
+  The name comes from the array `reduce` method: it walks a list, carrying an accumulator and folding
+  each item into it. A React reducer does the same with actions over time — it folds each dispatched
+  action into the running state. Same `(accumulator, item) => accumulator` shape.
+</Callout>
+
+## useState vs. dispatch
+
+You wire the reducer into a component with the `useReducer` hook. It returns the current state and a `dispatch` function:
+
+```jsx
+import { useReducer } from "react"
+
+function Counter() {
+  const [state, dispatch] = useReducer(reducer, { count: 0 })
+
+  return (
+    <>
+      <span>{state.count}</span>
+      <button onClick={() => dispatch({ type: "increment" })}>+</button>
+      <button onClick={() => dispatch({ type: "set", value: 0 })}>reset</button>
+    </>
+  )
+}
+```
+
+`dispatch({ type: "increment" })` doesn't change state directly — it hands the action to React, which calls your reducer with the current state and stores the result. The component re-renders with the new state, exactly like `useState`.
+
+<Callout variant="note" title="The second argument is the initial state">
+  `useReducer(reducer, initialState)` takes the initial state directly. There's also a lazy form,
+  `useReducer(reducer, initialArg, init)`, where `init(initialArg)` computes it once — handy for
+  expensive setup.
+</Callout>
+
+## Migrating from useState
+
+The cleanest way to feel the difference is to convert a component. Here's a small task list with `useState` — three handlers, each doing its own array gymnastics:
+
+```jsx
+function TaskApp() {
+  const [tasks, setTasks] = useState(initialTasks)
+
+  const handleAdd = (text) => setTasks([...tasks, { id: nextId++, text, done: false }])
+
+  const handleChange = (task) => setTasks(tasks.map((t) => (t.id === task.id ? task : t)))
+
+  const handleDelete = (id) => setTasks(tasks.filter((t) => t.id !== id))
+  // ...handlers passed down as props
+}
+```
+
+Migration is three mechanical steps:
+
+1. **Replace the setter calls with `dispatch`.** Each handler now describes _what happened_ as an action, instead of computing the next state inline.
+2. **Write the reducer** — move every "how the state changes" branch into one `(state, action)` function.
+3. **Swap `useState` for `useReducer`.**
+
+```jsx
+function TaskApp() {
+  const [tasks, dispatch] = useReducer(tasksReducer, initialTasks)
+
+  const handleAdd = (text) => dispatch({ type: "added", id: nextId++, text })
+  const handleChange = (task) => dispatch({ type: "changed", task })
+  const handleDelete = (id) => dispatch({ type: "deleted", id })
+  // ...handlers still passed down, but they're now one-liners
+}
+
+function tasksReducer(tasks, action) {
+  switch (action.type) {
+    case "added":
+      return [...tasks, { id: action.id, text: action.text, done: false }]
+    case "changed":
+      return tasks.map((t) => (t.id === action.task.id ? action.task : t))
+    case "deleted":
+      return tasks.filter((t) => t.id !== action.id)
+    default:
+      throw new Error(`Unknown action: ${action.type}`)
+  }
+}
+```
+
+The component now reads like a list of _intentions_; the reducer holds all the _mechanics_ in one testable place.
+
+## When to prefer useReducer over useState
+
+Both are fine; reach for `useReducer` when:
+
+- **State is complex or related.** Several fields that change together (a form, a wizard, a fetch with `data`/`loading`/`error`) live more cleanly in one object updated by one reducer than in five separate `useState` calls.
+- **The next state depends on the previous one** in non-trivial ways. Reducers receive the latest state as their first argument, so the transition logic is centralized and correct.
+- **There are many actions.** When a component has lots of distinct ways to update — add, remove, toggle, reorder, reset — collecting them as action types keeps the update logic in one readable place instead of scattered handlers.
+- **You want to debug state transitions.** Because every change goes through one function, you can log every action and the resulting state in a single spot.
+
+<Callout variant="tip" title="Rule of thumb">
+  Independent, simple values → `useState`. A cluster of related fields with several update paths →
+  `useReducer`. You can mix both in the same component.
+</Callout>
+
+## Immutability in reducers
+
+A reducer must **return a new state object** rather than mutating the existing one. React compares references to decide whether to re-render; mutating in place keeps the same reference and the UI won't update:
+
+```js
+// 🚩 Mutation — same reference, React may skip the re-render
+case "toggled":
+  state.todos[i].done = true
+  return state
+
+// ✅ New objects all the way down to the changed field
+case "toggled":
+  return {
+    ...state,
+    todos: state.todos.map((t) => (t.id === action.id ? { ...t, done: !t.done } : t)),
+  }
+```
+
+This is the same immutability rule as `useState`, just concentrated in one function. (Tools like Immer let you write "mutating" code that produces an immutable result, if the spreads get tedious.)
+
+## Writing clean reducers
+
+A few habits keep reducers readable as they grow:
+
+- **Name actions after what happened, not what to do.** `"added"`, `"deleted"`, `"changed"` describe a user intention; `"setTasks"` just re-exposes the setter and throws away the whole benefit. The reducer decides what each event _means_ for state.
+- **Keep reducers pure.** No `fetch`, no timers, no mutation, no reading the clock — same input, same output, every time. Side effects belong in event handlers or effects, not the reducer.
+- **One action can update several fields.** Prefer a single rich action (`"reviewed"`) that updates everything that logically changes together over firing three separate dispatches the UI has to keep in sync.
+
+```js
+// 🚩 Action describes an operation — leaks "how" into the action
+dispatch({ type: "setTasks", tasks: [...tasks, newTask] })
+
+// ✅ Action describes an event — reducer owns the "how"
+dispatch({ type: "added", id, text })
+```
+
+<Callout variant="warn" title="Keep side effects out of the reducer">
+  A reducer can run more than once per dispatch in development (Strict Mode double-invokes it to help
+  you catch impurity). If it fetches, mutates, or logs, those effects fire twice and behavior gets
+  confusing. Keep it a pure `(state, action) => newState` and do effects elsewhere.
+</Callout>
+
+## A reducer as a state machine
+
+Reducers shine when state has a few well-defined _phases_ that can only move between each other in specific ways — a fetch is the classic case. Modelling `idle → loading → success | error` as a reducer keeps impossible combinations (like `loading: true` with an `error`) out of reach:
+
+```js
+function fetchReducer(state, action) {
+  switch (action.type) {
+    case "started":
+      return { status: "loading", data: null, error: null }
+    case "succeeded":
+      return { status: "success", data: action.data, error: null }
+    case "failed":
+      return { status: "error", data: null, error: action.error }
+    default:
+      throw new Error(`Unknown action: ${action.type}`)
+  }
+}
+
+function UserProfile({ userId }) {
+  const [state, dispatch] = useReducer(fetchReducer, {
+    status: "idle",
+    data: null,
+    error: null,
+  })
+
+  useEffect(() => {
+    let active = true
+    dispatch({ type: "started" })
+    fetch(`/api/users/${userId}`)
+      .then((r) => r.json())
+      .then((data) => active && dispatch({ type: "succeeded", data }))
+      .catch((error) => active && dispatch({ type: "failed", error }))
+    return () => {
+      active = false
+    }
+  }, [userId])
+
+  if (state.status === "loading") return <Spinner />
+  if (state.status === "error") return <Error message={state.error.message} />
+  return <Profile user={state.data} />
+}
+```
+
+The `fetch` itself — a side effect — stays in the `useEffect`; the reducer only folds the resulting events into state. A single `status` string drives the render, so the three branches are mutually exclusive by construction.
+
+<Callout variant="tip" title="Model phases, not booleans">
+  Replacing scattered `isLoading` / `hasError` / `isEmpty` flags with one `status` enum is a common
+  win. Booleans can contradict each other; a single state field cannot be in two phases at once.
+</Callout>
+
+## Pairing with context for app state
+
+`useReducer` + context is the canonical no-dependency pattern for shared state. The reducer owns the logic, context distributes `state` and `dispatch`, and any component can dispatch actions without prop-drilling:
+
+```jsx
+const TasksContext = createContext(null)
+const TasksDispatchContext = createContext(null)
+
+function TasksProvider({ children }) {
+  const [tasks, dispatch] = useReducer(tasksReducer, [])
+  return (
+    <TasksContext.Provider value={tasks}>
+      <TasksDispatchContext.Provider value={dispatch}>{children}</TasksDispatchContext.Provider>
+    </TasksContext.Provider>
+  )
+}
+```
+
+Splitting state and dispatch into two contexts is deliberate: `dispatch` is **stable for the component's lifetime** (React guarantees its identity never changes), so components that only dispatch never re-render when the data changes. A deeply nested `AddTask` button just reads `useContext(TasksDispatchContext)` and fires `dispatch({ type: "added", ... })` — no props, no drilling.
+
+## How it maps onto Redux
+
+If this feels like Redux, that's not a coincidence — Redux popularized the pattern. The core ideas line up:
+
+| Redux                     | useReducer + context       |
+| ------------------------- | -------------------------- |
+| store                     | state held by `useReducer` |
+| `dispatch(action)`        | `dispatch(action)`         |
+| reducer `(state, action)` | same reducer signature     |
+| `<Provider store>`        | context Provider           |
+
+The difference is scale. `useReducer` is local React state with no middleware, no selectors, no devtools, no single global store. Redux (or Zustand/Jotai) adds those for large apps. Conceptually, learning `useReducer` teaches you 80% of how Redux thinks — which is why it's a frequent interview bridge between the two.
+
+## Recap
+
+- A reducer is a pure `(state, action) => newState` function; you trigger it with `dispatch(action)`.
+- `useReducer(reducer, initialState)` returns `[state, dispatch]`; `dispatch` is stable across renders.
+- Migrate from `useState` in three steps: dispatch actions, write the reducer, swap the hook.
+- Prefer it when state is complex, transitions depend on prior state, or there are many update paths.
+- Return new objects — never mutate — and keep the reducer free of side effects.
+- Name actions after events, and pair the reducer with context to share state app-wide.
+
+> An action is a _description of what happened_, not a command to mutate. The reducer decides what that means for state. That separation is the whole point.

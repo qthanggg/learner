@@ -1,0 +1,126 @@
+---
+import { getCollection, render } from "astro:content"
+import PageLayout from "../../layouts/PageLayout.astro"
+import Reveal from "../../components/react/Reveal.tsx"
+import { ArrowLeft, ArrowRight, Clock } from "lucide-react"
+
+export async function getStaticPaths() {
+  const all = await getCollection("learn")
+  const slugs = [...new Set(all.map((e) => e.data.topic))]
+
+  // Curriculum order, used for prev/next links at the foot of each article.
+  const ordered = slugs
+    .map((slug) => {
+      const pair = all.filter((e) => e.data.topic === slug)
+      const en = pair.find((e) => e.data.lang === "en")
+      const vi = pair.find((e) => e.data.lang === "vi")
+      const meta = (en ?? vi)!.data
+      return { slug, en, vi, order: meta.order }
+    })
+    .sort((a, b) => a.order - b.order)
+
+  return ordered.map((item, i) => {
+    const prevItem = ordered[i - 1]
+    const nextItem = ordered[i + 1]
+    return {
+      params: { slug: item.slug },
+      props: {
+        en: item.en,
+        vi: item.vi,
+        prev: prevItem ? { slug: prevItem.slug } : null,
+        next: nextItem ? { slug: nextItem.slug } : null,
+      },
+    }
+  })
+}
+
+const { en, vi } = Astro.props
+const prev = Astro.props.prev
+const next = Astro.props.next
+const meta = (en ?? vi)!.data
+
+// Render whichever languages exist; both are emitted, CSS shows one at a time.
+const Rendered = {
+  en: en ? (await render(en)).Content : null,
+  vi: vi ? (await render(vi)).Content : null,
+}
+
+const LEVEL_LABEL: Record<string, string> = {
+  beginner: "Beginner",
+  intermediate: "Intermediate",
+  advanced: "Advanced",
+}
+---
+
+<PageLayout title={`${meta.title} — Learn React`} description={meta.summary} path={`/learn/${meta.topic}`}>
+  <article class="mx-auto max-w-3xl px-6 py-12 sm:py-16">
+    <a
+      href="/learn"
+      class="text-muted-foreground hover:text-foreground mb-8 inline-flex items-center gap-1.5 text-sm transition-colors"
+    >
+      <ArrowLeft className="size-4" /> All React topics
+    </a>
+
+    <div class="mb-3 flex flex-wrap items-center gap-2 text-xs">
+      <span class="text-brand-pink font-medium tracking-wide uppercase">{meta.category}</span>
+      <span class="text-muted-foreground/50">•</span>
+      <span class="border-border text-muted-foreground rounded-full border px-2 py-0.5">
+        {LEVEL_LABEL[meta.level]}
+      </span>
+      {
+        meta.readingTime && (
+          <span class="text-muted-foreground inline-flex items-center gap-1">
+            <Clock className="size-3.5" /> {meta.readingTime} min
+          </span>
+        )
+      }
+    </div>
+
+    <h1 class="text-foreground text-3xl font-bold tracking-tight text-balance sm:text-4xl">
+      {en && <span data-lang="en">{en.data.title}</span>}
+      {vi && <span data-lang="vi">{vi.data.title}</span>}
+    </h1>
+    <p class="text-muted-foreground mt-3 text-lg text-pretty">
+      {en && <span data-lang="en">{en.data.summary}</span>}
+      {vi && <span data-lang="vi">{vi.data.summary}</span>}
+    </p>
+
+    <hr class="border-border/60 my-8" />
+
+    <Reveal client:visible>
+      {Rendered.en && <div data-lang="en" class="learn-prose"><Rendered.en /></div>}
+      {Rendered.vi && <div data-lang="vi" class="learn-prose"><Rendered.vi /></div>}
+    </Reveal>
+
+    <nav class="border-border/60 mt-16 grid grid-cols-2 gap-4 border-t pt-8 text-sm">
+      <div>
+        {
+          prev && (
+            <a
+              href={`/learn/${prev.slug}`}
+              class="text-muted-foreground hover:text-foreground group inline-flex items-center gap-1.5 transition-colors"
+            >
+              <ArrowLeft className="size-4 transition-transform group-hover:-translate-x-0.5 inline" />
+              <span data-lang="en">Previous</span>
+              <span data-lang="vi">Bài trước</span>
+            </a>
+          )
+        }
+      </div>
+      <div class="text-right">
+        {
+          next && (
+            <a
+              href={`/learn/${next.slug}`}
+              class="text-muted-foreground hover:text-foreground group inline-flex items-center justify-end gap-1.5 transition-colors"
+            >
+              <span data-lang="en">Next</span>
+              <span data-lang="vi">Bài tiếp</span>
+              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5 inline" />
+            </a>
+          )
+        }
+      </div>
+    </nav>
+  </article>
+</PageLayout>

@@ -1,0 +1,244 @@
+---
+topic: useeffect
+lang: en
+title: "useEffect & side effects"
+summary: "When effects run, what the dependency array really means, how cleanup works, why Strict Mode runs them twice, and how to tell when you don't need an effect at all."
+category: Hooks
+level: intermediate
+order: 60
+readingTime: 12
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## What counts as a side effect
+
+Rendering in React is supposed to be **pure**: given the same props and state, your component returns the same JSX and touches nothing outside itself. A **side effect** is anything that reaches outside that pure calculation — subscribing to an event, setting up a timer, fetching data, syncing with a non-React widget, reading or writing the DOM directly.
+
+You can't do those during render, because render can run many times, be thrown away, or be interrupted. `useEffect` is the escape hatch: it lets you run code **after** React has committed the result to the screen.
+
+```jsx
+import { useEffect, useState } from "react"
+
+function WindowWidth() {
+  const [width, setWidth] = useState(window.innerWidth)
+
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth)
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [])
+
+  return <p>Width: {width}px</p>
+}
+```
+
+<Callout variant="note" title="After commit and paint">
+  Effects fire after the DOM is committed and the browser has painted, so they never block the
+  visible update. If you must measure layout *before* paint, that's the job of `useLayoutEffect`.
+</Callout>
+
+## The mental model: synchronization, not lifecycle
+
+The official docs are emphatic about this. An effect is not "code that runs on mount" — it's a description of how to **keep an external system in sync** with your React state. Each effect describes a single piece of synchronization: connect to _this_ room, subscribe to _this_ event, sync to _this_ value.
+
+That reframing matters because it changes how you reason about re-runs. You don't ask "did the component mount or update?" You ask "do the values this effect depends on still match what's synced?" If they changed, React re-synchronizes — cleanup the old sync, set up the new one.
+
+## The dependency array decides when it re-runs
+
+The second argument controls how often the effect runs. There are exactly three shapes, and they mean different things:
+
+```jsx
+useEffect(() => {
+  /* ... */
+}) // no array: after EVERY render
+useEffect(() => {
+  /* ... */
+}, []) // empty: once after mount (re-sync never)
+useEffect(() => {
+  /* ... */
+}, [userId]) // runs when userId changes
+```
+
+After each render React compares every value in the array to its value from the previous render (using `Object.is`). If any one changed, the effect re-runs.
+
+```jsx
+function ChatRoom({ roomId }) {
+  const [serverUrl, setServerUrl] = useState("https://localhost:1234")
+
+  useEffect(() => {
+    const connection = createConnection(serverUrl, roomId)
+    connection.connect()
+    return () => connection.disconnect()
+  }, [roomId, serverUrl]) // re-sync whenever either reactive value changes
+}
+```
+
+<Callout variant="note" title="You don't choose the dependencies — the code does">
+  The dependency list isn't a knob to tune. It must contain *every* reactive value the effect reads
+  (props, state, and values computed from them). If a value is read inside but missing from the
+  array, you'll get a stale value. The linter computes the correct list for you.
+</Callout>
+
+## Cleanup: when and why it runs
+
+If your effect returns a function, React treats it as **cleanup**. It runs in two situations:
+
+1. Before the effect runs **again** (because a dependency changed), to undo the previous run.
+2. When the component **unmounts**.
+
+So the lifecycle of the `ChatRoom` example is: connect to room A → (roomId changes) → disconnect from A → connect to room B → (unmount) → disconnect from B. Every setup is paired with exactly one cleanup. Forgetting cleanup is the classic source of memory leaks, duplicate listeners, and ghost timers.
+
+```jsx
+useEffect(() => {
+  const id = setInterval(() => tick(), 1000)
+  return () => clearInterval(id) // without this, intervals stack up
+}, [])
+```
+
+<Callout variant="warn" title="Strict Mode runs effects twice in dev">
+  In development, React's Strict Mode mounts, unmounts, then remounts each component — so your
+  effect runs setup → cleanup → setup. This is a stress test, not a bug: if cleanup correctly undoes
+  setup, the double run is invisible. If the second run misbehaves (a duplicate connection, a
+  doubled counter), your effect is missing cleanup. It does **not** happen in production.
+</Callout>
+
+## Pitfall: stale closures from missing dependencies
+
+An effect closes over the props and state from the render that created it. If you read a value but leave it out of the array, you keep seeing the old value.
+
+```jsx
+// 🐛 count is captured once; this always logs the initial value
+useEffect(() => {
+  const id = setInterval(() => console.log(count), 1000)
+  return () => clearInterval(id)
+}, []) // missing `count`
+```
+
+Either add `count` to the array (the interval resets each time it changes), or use the functional updater so you never read it:
+
+```jsx
+// ✅ no dependency on count at all
+useEffect(() => {
+  const id = setInterval(() => setCount((c) => c + 1), 1000)
+  return () => clearInterval(id)
+}, [])
+```
+
+## Pitfall: infinite loops from object and function dependencies
+
+If an effect sets state that is also a dependency, it re-runs forever. Objects, arrays, and functions are the sneaky version — a fresh `{}` or `() => {}` every render is never `Object.is`-equal to the last one, so the effect thinks its deps changed on _every_ render.
+
+```jsx
+// 🐛 options is a new object each render → effect runs every render
+function ChatRoom({ roomId }) {
+  const options = { serverUrl: "https://localhost:1234", roomId }
+  useEffect(() => {
+    const conn = createConnection(options)
+    conn.connect()
+    return () => conn.disconnect()
+  }, [options]) // new object every time
+}
+```
+
+The cleanest fix is to move the object **inside** the effect, so it isn't a dependency at all:
+
+```jsx
+// ✅ object created inside; depend on the primitive instead
+function ChatRoom({ roomId }) {
+  useEffect(() => {
+    const options = { serverUrl: "https://localhost:1234", roomId }
+    const conn = createConnection(options)
+    conn.connect()
+    return () => conn.disconnect()
+  }, [roomId]) // a string — stable across renders
+}
+```
+
+If an object or function genuinely has to live outside the effect, memoize it with `useMemo` / `useCallback`. And trust `eslint-plugin-react-hooks` — its `exhaustive-deps` rule catches almost all of these.
+
+<Callout variant="warn" title="Don't silence the linter">
+  Adding an `// eslint-disable-next-line` to "fix" an infinite loop hides the real problem instead
+  of solving it. The right move is usually to remove a dependency (move it inside, or use a
+  functional updater), not to lie about the dependency list.
+</Callout>
+
+## You might not need an effect
+
+Effects are an escape hatch for talking to systems _outside_ React. They are not for orchestrating data flow _inside_ your app, and that's where they get overused. Three categories almost never belong in an effect.
+
+### 1. Data you can derive during render
+
+Don't mirror props/state into more state with an effect — just compute it while rendering. The effect version does an extra render pass with a stale value, then re-renders.
+
+```jsx
+// ❌ redundant state + effect
+const [fullName, setFullName] = useState("")
+useEffect(() => {
+  setFullName(first + " " + last)
+}, [first, last])
+
+// ✅ derive it during render
+const fullName = first + " " + last
+```
+
+The same applies to filtering or transforming a list — compute it inline (and wrap in `useMemo` only if it's genuinely expensive), don't sync it into state:
+
+```jsx
+// ✅ no effect, no extra state
+const visibleTodos = todos.filter((t) => !t.completed)
+```
+
+### 2. Logic that responds to a user action
+
+That belongs in an event handler, not an effect. An effect runs because something _rendered_; a handler runs because the user _did_ something. Sending an analytics event on click, submitting a form, showing a success toast after a purchase — all event-handler work.
+
+```jsx
+// ❌ which "render" caused the POST? hard to say, and it'll fire on remount
+useEffect(() => {
+  if (submitted) post("/api/order", order)
+}, [submitted])
+
+// ✅ the cause is the click — keep it in the handler
+function handleSubmit() {
+  post("/api/order", order)
+}
+```
+
+<Callout variant="tip" title="A quick test">
+  Ask "what caused this code to run?" If the answer is *a specific user interaction*, use an event
+  handler. If it's *the component appearing, or a value changing*, an effect may be the right tool.
+</Callout>
+
+### 3. Fetching — and guarding against race conditions
+
+Fetching in an effect is legitimate synchronization, but it has a trap: responses can arrive out of order. If `query` changes from `"a"` to `"ab"`, the slower `"a"` request may resolve _after_ `"ab"` and overwrite the newer results. The fix is a cleanup flag that ignores stale responses.
+
+```jsx
+function SearchResults({ query }) {
+  const [results, setResults] = useState([])
+
+  useEffect(() => {
+    let ignore = false
+    fetchResults(query).then((json) => {
+      if (!ignore) setResults(json) // skip if a newer query already started
+    })
+    return () => {
+      ignore = true
+    }
+  }, [query])
+
+  // ...
+}
+```
+
+When `query` changes, cleanup sets `ignore = true` on the previous run, so its late response is discarded. In real apps, prefer a framework's data layer or a library like React Query — but the `ignore` pattern is the minimum correct hand-rolled version, and it's also what makes fetches survive Strict Mode's double-run cleanly.
+
+## Recap
+
+- An effect synchronizes React with an external system; reach for it last, not first.
+- It runs **after** commit and paint, then re-runs when a dependency changes (`Object.is` comparison).
+- The dependency array must list every reactive value the effect reads — let the linter compute it.
+- Return a cleanup function; it runs before each re-run and on unmount. Strict Mode double-runs in dev to verify it.
+- Stale closures come from missing deps; infinite loops come from object/function deps — move them inside or memoize.
+- Derive data during render, handle user actions in handlers, and guard fetches with an `ignore` flag.

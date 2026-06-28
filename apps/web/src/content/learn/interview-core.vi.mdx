@@ -1,0 +1,358 @@
+---
+topic: interview-core
+lang: vi
+title: "Bộ câu hỏi phỏng vấn React"
+summary: "40 câu thực sự hay được hỏi — kèm câu trả lời cho thấy bạn hiểu 'vì sao', không chỉ 'là gì'."
+category: Interview
+level: intermediate
+order: 200
+readingTime: 20
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+import QA from "../../components/react/learn/QA.tsx"
+
+<Callout variant="interview" title="Cách dùng phần này">
+  Đừng học thuộc — hãy nói lại bằng lời của bạn. Một câu trả lời mạnh sẽ nêu cơ chế trước, rồi đến
+  đánh đổi. Bấm vào câu hỏi để xem câu trả lời mẫu.
+</Callout>
+
+## Nền tảng
+
+<QA q="JSX là gì, và có bắt buộc phải dùng nó với React không?">
+  JSX là một cú pháp mở rộng được biên dịch thành các lời gọi hàm thuần —
+  <code>&lt;Foo a={1} /&gt;</code> trở thành <code>jsx(Foo, &#123; a: 1 &#125;)</code> (trước đây là
+  <code>React.createElement</code>). Nó <em>không</em> bắt buộc: bạn hoàn toàn có thể tự viết các
+  lời gọi đó. JSX tồn tại vì mô tả một cây UI bằng cú pháp giống markup dễ đọc hơn nhiều, và vì giữ
+  markup cùng logic trong một file (thay vì chia tách giả tạo theo công nghệ) chính là thứ làm
+  component trở nên gắn kết.
+</QA>
+
+<QA q="React element và component khác nhau thế nào?">
+  <strong>Component</strong> là một hàm trả về UI; <strong>element</strong> là object thuần mà hàm
+  đó tạo ra — một mô tả kiểu <code>&#123; type, props, key &#125;</code>. Element là bất biến, tạo
+  ra rất rẻ, và chỉ là dữ liệu — React đọc chúng để quyết định render gì. Hình dung: component là
+  công thức, element là một "ảnh chụp" của món ăn bạn vừa gọi.
+</QA>
+
+<QA q="Props hoạt động ra sao, và vì sao luồng dữ liệu là một chiều?">
+  Props là các tham số chỉ-đọc mà cha truyền xuống; con tuyệt đối không được sửa chúng. Dữ liệu chảy
+  <strong>một chiều</strong> — từ cha xuống con — vì điều đó khiến UI dễ đoán: muốn biết vì sao một
+  component hiển thị như vậy, bạn chỉ cần nhìn <em>lên</em> cây, không phải nhìn ngang. Muốn gửi dữ
+  liệu ngược lên, cha truyền một callback xuống và con gọi nó (sự kiện đi lên, dữ liệu đi xuống).
+</QA>
+
+<QA q="Key là gì và vì sao không nên dùng index của mảng?">
+  Key cho mỗi phần tử trong danh sách một danh tính ổn định để React khớp element giữa các lần
+  render thay vì tạo lại. Dùng index sẽ hỏng khi danh sách đổi thứ tự, thêm hoặc xoá phần tử: React
+  gắn state (và DOM) cho sai phần tử — bạn thấy input sai chỗ, mất focus, hoặc animation giật. Hãy
+  dùng id ổn định từ dữ liệu.
+</QA>
+
+<QA q="Controlled và uncontrolled component khác nhau ra sao?">
+  Input <strong>controlled</strong> có giá trị do state React điều khiển (<code>value</code> +
+  <code>onChange</code>) — React là nguồn sự thật duy nhất. Input <strong>uncontrolled</strong> tự
+  giữ state trong DOM và bạn đọc qua <code>ref</code> khi cần. Controlled tiện cho validate và UI
+  suy ra tức thời; uncontrolled đơn giản hơn cho form lớn/đơn giản và input file.
+</QA>
+
+<QA q="Virtual DOM là gì và vì sao React dùng nó?">
+  Virtual DOM là một cây nhẹ trong bộ nhớ gồm các object thuần (React element) mô tả giao diện. Mỗi
+  lần render, React dựng cây mới rồi <strong>so sánh (diff)</strong> với cây cũ, sau đó áp dụng tập
+  thay đổi DOM thật nhỏ nhất. Cái lợi không phải vì virtual DOM "nhanh" — mà vì nó cho phép bạn viết
+  code khai báo <strong>UI = f(state)</strong> trong khi React gộp (batch) và tối thiểu hoá phần đắt
+  đỏ (đụng vào DOM thật).
+</QA>
+
+## State & render
+
+<QA q="'State là một ảnh chụp (snapshot)' nghĩa là gì?">
+  Mỗi lần render nhận một bản sao <em>đông cứng</em> của state, props và các event handler — giá trị
+  cố định cho lần render đó và không tự đổi dưới chân bạn. Vì vậy gọi{" "}
+  <code>setNumber(number + 1)</code>
+  ba lần trong một handler đều đọc cùng một <code>number</code> và chỉ tăng đúng một lần. Biến state
+  không đổi <em>trong lúc</em> render; React lên lịch một lần render <strong>mới</strong> với giá
+  trị mới.
+</QA>
+
+<QA q="Batching là gì và khi nào React làm điều đó?">
+  React gộp nhiều cập nhật state xảy ra trong cùng một sự kiện (và từ React 18, cả trong timeout,
+  promise, native handler) thành <strong>một lần render duy nhất</strong>. Điều này tránh việc
+  render cho từng <code>setState</code> riêng lẻ và tránh UI nửa vời không nhất quán. Đánh đổi cần
+  nhớ: trong sự kiện đó, các biến state vẫn giữ giá trị snapshot của chúng — không cập nhật theo
+  từng dòng.
+</QA>
+
+<QA q="Khi nào cần dạng updater setX(prev =&gt; …)?">
+  Dùng nó bất cứ khi nào giá trị mới phụ thuộc giá trị cũ, nhất là khi bạn cập nhật hơn một lần
+  trong một handler. <code>setNumber(n =&gt; n + 1)</code> đẩy vào hàng đợi một hàm mà React áp lên
+  giá trị mới nhất trong hàng đợi, nên ba lần gọi cộng đúng ba. Truyền <code>number + 1</code> thì
+  tái dùng snapshot cũ và chỉ tính một lần. Nó cũng giúp bạn khỏi phải liệt kê state vào dependency
+  của effect.
+</QA>
+
+<QA q="Vì sao phải cập nhật state theo kiểu bất biến thay vì mutate?">
+  React quyết định có render lại hay không bằng cách so sánh <em>tham chiếu</em> của state mới với
+  state cũ qua <code>Object.is</code>. Nếu bạn push vào cùng mảng cũ hoặc mutate cùng object, tham
+  chiếu không đổi, nên React có thể bỏ qua lần render — và bạn cũng làm hỏng luôn snapshot của lần
+  render hiện tại. Hãy luôn tạo object/mảng mới (<code>[...arr, x]</code>,
+  <code>&#123; ...obj, k &#125;</code>) để thay đổi phát hiện được và snapshot cũ vẫn nguyên vẹn.
+</QA>
+
+<QA q="Cha render lại — tất cả con có render lại không?">
+  Mặc định là có: React chạy lại mọi component con của component vừa render, bất kể props của chúng
+  có đổi hay không. Sau đó nó diff kết quả và chỉ vá phần DOM thực sự khác. Muốn bỏ qua chính lời
+  gọi hàm của con, hãy bọc con trong <code>React.memo</code> và giữ props ổn định về tham chiếu —
+  hoặc truyền con qua <code>children</code> để state cha đổi không tạo lại nó.
+</QA>
+
+<QA q="'Derived state' là gì và vì sao không nên lưu nó vào state?">
+  Derived state là bất cứ thứ gì bạn có thể <em>tính ra</em> từ props hay state đang có — một danh
+  sách đã lọc, họ tên đầy đủ, một tổng. Lưu nó vào một <code>useState</code> riêng nghĩa là bạn phải
+  nhớ đồng bộ nó, sinh ra bug và render thừa. Thay vào đó hãy tính ngay trong lúc render (chỉ bọc
+  <code>useMemo</code> nếu nó thực sự đắt). Nếu bạn đang đồng bộ state bằng một effect, nhiều khả
+  năng thứ bạn cần là derived state.
+</QA>
+
+## Hooks
+
+<QA q="Vì sao hooks phải được gọi cùng thứ tự ở mỗi lần render?">
+  React theo dõi state của hook bằng <strong>thứ tự gọi</strong>, không phải bằng tên — mỗi
+  component có một danh sách đánh chỉ số 0, 1, 2… Nếu bạn gọi hook trong điều kiện, các chỉ số lệch
+  nhau giữa các render và React đọc nhầm ô. Vì vậy hooks phải nằm ở cấp cao nhất: không if, vòng
+  lặp, hay return sớm trước chúng, và chỉ gọi từ component hoặc custom hook.
+</QA>
+
+<QA q="Mảng dependency của useEffect làm gì, và cleanup để làm gì?">
+  Deps báo cho React biết khi nào chạy lại effect: sau lần commit đầu tiên, rồi chỉ chạy lại khi một
+  giá trị trong danh sách thay đổi (theo <code>Object.is</code>). Hàm <strong>cleanup</strong> chạy
+  trước effect kế tiếp và khi unmount — nó để hoàn tác effect trước đó (huỷ subscribe, ngắt kết nối,
+  xoá timer) nhằm tránh rò rỉ subscription hay chồng listener. Thiếu một dependency bạn thực sự dùng
+  gây stale closure; một effect có setup thường nên có cleanup tương ứng.
+</QA>
+
+<QA q="Vì sao Strict Mode chạy effect (và render) hai lần ở môi trường dev?">
+  Ở chế độ dev, Strict Mode cố ý gọi render hai lần và chạy mỗi effect theo
+  <strong>setup → cleanup → setup</strong> để phơi bày bug sớm. Đó là một bài kiểm tra áp lực: nếu
+  effect của bạn hỏng khi chạy hai lần thì nó chưa cleanup đúng, và cách sửa là làm cho
+  setup/cleanup đối xứng — chứ không phải thêm một cờ chặn. Điều này chỉ xảy ra ở dev, không bao giờ
+  ở production.
+</QA>
+
+<QA q="useMemo và useCallback khác nhau thế nào?">
+  <code>useCallback(fn, deps)</code> đúng nghĩa là <code>useMemo(() =&gt; fn, deps)</code>. useMemo
+  ghi nhớ một <em>giá trị</em>; useCallback ghi nhớ <em>danh tính một hàm</em>. Cả hai chỉ có lợi
+  khi có thứ gì đó so sánh kết quả — một <code>memo</code> child, một dep của effect, hay dep của
+  memo khác. Không cái nào làm một lần render nhanh hơn; chúng ngăn công việc <em>phía dưới</em>{" "}
+  chạy lại.
+</QA>
+
+<QA q="useRef và state — khi nào dùng ref?">
+  Cả hai đều giữ giá trị qua các lần render, nhưng ghi vào ref{" "}
+  <strong>không kích hoạt render lại</strong>
+  và giá trị mới đọc được ngay (không phải đợi lần render kế). Dùng state cho thứ UI hiển thị; dùng
+  ref cho giá trị không được render — một DOM node, id của timer, giá trị trước đó, một cờ mutable.
+  Quy tắc nhanh: nếu thay đổi nó cần vẽ lại màn hình thì đó là state.
+</QA>
+
+<QA q="useReducer và useState khác nhau ra sao?">
+  Cả hai đều lưu state; <code>useReducer</code> đưa <em>logic</em> cập nhật vào một hàm reducer
+  thuần nên các chuyển trạng thái nằm gọn một chỗ dưới dạng các action có tên. Hãy dùng nó khi nhiều
+  mẩu state đổi cùng nhau, khi trạng thái kế tiếp phụ thuộc phức tạp vào trạng thái trước, hoặc khi
+  logic cập nhật rải rác trong các handler trở nên khó theo dõi. Nó cũng dễ test hơn và danh tính
+  của dispatch là ổn định.
+</QA>
+
+<QA q="Custom hook thực ra chia sẻ cái gì — logic hay state?">
+  Chúng chia sẻ <strong>logic có trạng thái, chứ không phải bản thân state</strong>. Mỗi lời gọi một
+  custom hook chạy độc lập: hai component dùng <code>useFormInput()</code> sẽ có state hoàn toàn
+  riêng. Custom hook chỉ là một hàm có tên bắt đầu bằng <code>use</code> và gọi các hook khác — nó
+  là cách đặt tên và tái dùng một hành vi, không phải cách để các component dùng chung một giá trị
+  (đó là việc của lifting state hay context).
+</QA>
+
+<QA q="Cảnh báo về render lại khi dùng useContext là gì?">
+  Mọi component gọi <code>useContext</code> sẽ render lại mỗi khi <code>value</code> của provider
+  đổi về tham chiếu — và nếu bạn truyền một object/mảng inline làm <code>value</code>, một tham
+  chiếu mới được tạo ở mỗi lần render của cha, nên tất cả consumer render lại vô ích. Hãy memo hoá
+  value, và tách dữ liệu không liên quan ra các context riêng để thay đổi của cái này không đánh
+  thức consumer của cái kia.
+</QA>
+
+## Hiệu năng
+
+<QA q="Khi nào và vì sao thực sự nên dùng React.memo?">
+  <code>memo</code> bỏ qua việc render lại một component khi props của nó nông-bằng (shallow-equal)
+  với lần trước — hữu ích cho một component đắt mà render thường xuyên với cùng props. Nhưng nó
+  không miễn phí: React vẫn phải so sánh props, và chỉ có lợi nếu props{" "}
+  <em>ổn định về tham chiếu</em>, điều này thường kéo theo <code>useCallback</code>/
+  <code>useMemo</code>. Hãy đo trước; phần lớn component đủ rẻ đến mức memo chỉ thêm phức tạp mà
+  chẳng lợi gì thực sự.
+</QA>
+
+<QA q="Những cạm bẫy thường gặp của useMemo và useCallback là gì?">
+  Chúng không miễn phí và dễ dùng sai: một dependency sai hoặc thiếu khiến chúng trả về giá trị cũ,
+  và bọc những việc tầm thường còn tốn hơn (cái cache, mảng deps) so với phần tiết kiệm được. Chúng
+  chỉ có ý nghĩa khi có thứ gì đó <em>phía dưới</em> phụ thuộc vào một tham chiếu ổn định. Cái bẫy
+  lớn nhất là rải chúng khắp nơi "cho nhanh" — điều đó thêm nhiễu và áp lực bộ nhớ mà không có lợi
+  ích đo được.
+</QA>
+
+<QA q="Bạn sẽ render một danh sách 10.000 dòng hiệu quả thế nào?">
+  Dùng <strong>virtualization</strong> (windowing): chỉ render một nhúm dòng đang nằm trong viewport
+  cộng một vùng đệm nhỏ, và tái sử dụng chúng khi người dùng cuộn, dùng một spacer để giữ thanh cuộn
+  đúng. DOM chỉ giữ khoảng 20 node thay vì 10.000, nên layout và paint vẫn rẻ. Các thư viện như
+  react-window/react-virtual hiện thực điều này; đánh đổi là việc đo đạc và xử lý dòng có chiều cao
+  thay đổi phức tạp hơn.
+</QA>
+
+<QA q="Code-splitting với lazy và Suspense hoạt động thế nào?">
+  <code>React.lazy(() =&gt; import('./X'))</code> biến một component thành một bundle riêng được tải
+  khi cần, nhờ đó kích thước JS ban đầu giảm. Bạn bọc component lazy trong
+  <code>&lt;Suspense fallback=&#123;…&#125;&gt;</code>, nó hiển thị fallback trong khi chunk (hay
+  bất kỳ dữ liệu nào đang suspend) đang tải. Hãy tách ở các ranh giới tự nhiên — route, modal,
+  widget nặng — để người dùng chỉ tải code cho thứ họ thực sự mở.
+</QA>
+
+<QA q="useTransition và useDeferredValue khác nhau ra sao?">
+  Cả hai giữ UI mượt bằng cách đánh dấu công việc là không khẩn cấp để React có thể ngắt nó cho các
+  cập nhật khẩn như gõ phím. <code>useTransition</code> bọc <em>cập nhật state</em> bạn kích hoạt (
+  <code>startTransition(() =&gt; setTab(next))</code>) và cho bạn cờ <code>isPending</code>;
+  <code>useDeferredValue</code> bọc một <em>giá trị</em> bạn nhận và để phần đắt đỏ tụt lại sau
+  input mới nhất. Dùng cái đầu khi bạn sở hữu setter, cái sau khi bạn chỉ có giá trị (ví dụ một
+  prop).
+</QA>
+
+## Kiến trúc & nâng cao
+
+<QA q="Reconciliation quyết định giữ, cập nhật hay thay thế cái gì như thế nào?">
+  React so sánh cây element mới với cây cũ tại cùng vị trí bằng các heuristic rẻ: khác
+  <code>type</code> element thì phá nhánh con cũ cùng state của nó và dựng mới; cùng type thì giữ
+  DOM node và chỉ cập nhật props đã đổi; các con trong danh sách được khớp theo <code>key</code>.
+  Những quy tắc O(n) này (thay vì một phép diff cây hoàn hảo O(n³)) chính là thứ làm việc render lại
+  ở mỗi lần đổi state trở nên kham được.
+</QA>
+
+<QA q="Điều gì khiến React giữ hay reset state của một component?">
+  State gắn với <strong>vị trí của component trong cây</strong> cộng với <code>key</code> của nó,
+  chứ không phải với chỗ nó xuất hiện trong JSX. Render cùng một component ở cùng vị trí thì state
+  sống sót; render một type khác ở đó, hoặc đổi <code>key</code>, thì React unmount cái cũ và state
+  bị huỷ. Vì vậy đổi <code>key</code> là cách quy ước để chủ động reset một form hay remount một
+  component.
+</QA>
+
+<QA q="Error boundary là gì và nó không bắt được những gì?">
+  Error boundary là một component (dùng <code>componentDidCatch</code>/
+  <code>getDerivedStateFromError</code>) bắt lỗi lúc render trong nhánh con của nó và hiển thị
+  fallback thay vì unmount cả app. Nó <em>không</em> bắt lỗi trong event handler, code bất đồng bộ,
+  hay chính nó — những thứ đó bạn xử lý bằng <code>try/catch</code> thường. Hãy đặt boundary quanh
+  các vùng độc lập để một widget hỏng không kéo sập cả trang.
+</QA>
+
+<QA q="Portal là gì và khi nào cần nó?">
+  <code>createPortal(child, domNode)</code> render con vào một DOM node khác trong khi vẫn giữ chúng
+  trong cùng cây React — nên context, state và việc nổi bọt sự kiện (bubbling) vẫn hoạt động như thể
+  chúng lồng vào nhau bình thường. Bạn cần nó cho UI phải thoát khỏi <code>overflow:hidden</code>{" "}
+  hay ngữ cảnh <code>z-index</code> / cắt xén của cha: modal, tooltip, dropdown, toast.
+</QA>
+
+<QA q="Khi nào lift state lên, khi nào dùng context, khi nào cần một store?">
+  Hãy bắt đầu bằng <strong>lifting state</strong> lên cha chung gần nhất — đơn giản và tường minh
+  nhất. Dùng <strong>context</strong> khi nhiều component ở các độ sâu khác nhau cần cùng một giá
+  trị ít thay đổi (theme, người dùng hiện tại, locale) và prop-drilling gây phiền. Dùng một
+  <strong>store</strong> ngoài (Redux/Zustand/Jotai) khi state lớn, đổi thường xuyên, hoặc chia sẻ
+  rộng và bạn cần đăng ký (subscribe) chi tiết mà context không cho mà không render thừa.
+</QA>
+
+<QA q="Server state và client state — vì sao phải đối xử khác nhau?">
+  <strong>Client state</strong> do app bạn sở hữu và đồng bộ (input của form, toggle, đang mở tab
+  nào). <strong>Server state</strong> là một bản sao được cache của dữ liệu thực sự sống ở nơi khác
+  — nó bất đồng bộ, được chia sẻ, và có thể cũ đi, nên cần fetch, cache, revalidate và khử trùng
+  lặp. Ép server state vào <code>useState</code>+<code>useEffect</code> là tự dựng lại tất cả những
+  thứ đó một cách tệ; các công cụ như React Query / RTK Query ra đời chính để quản nửa server đó.
+</QA>
+
+## React 19 / hiện đại
+
+<QA q="Server Components giải quyết vấn đề gì, và 'use client' là gì?">
+  Server Components chỉ chạy trên server và gửi kết quả đã render (không phải JS của chúng) xuống
+  client, nhờ vậy các component lấy dữ liệu không tốn bundle và truy cập thẳng tầng dữ liệu. Chỉ thị
+  <code>"use client"</code> đánh dấu ranh giới nơi một module (và các import của nó) trở thành
+  client component có thể dùng state, effect và event handler. Mục tiêu: gửi ít JavaScript hơn, dữ
+  liệu gần chỗ render hơn, mà vẫn giữ mô hình component.
+</QA>
+
+<QA q="Form Action và useActionState trong React 19 hoạt động thế nào?">
+  Bạn có thể truyền một hàm cho <code>&lt;form action=&#123;…&#125;&gt;</code>; React gọi nó với
+  <code>FormData</code> khi submit và tự quản trạng thái pending cho bạn.{" "}
+  <code>useActionState</code>
+  bọc action đó để trả về <code>[state, formAction, isPending]</code>, nhờ vậy state lỗi/kết quả và
+  cờ loading đến từ một chỗ thay vì tự nối tay bằng <code>useState</code>. Action cũng chạy bên
+  trong transition, giữ UI mượt trong lúc submit.
+</QA>
+
+<QA q="use() API là gì và khác hook thường thế nào?">
+  <code>use()</code> đọc giá trị của một tài nguyên — một Promise (nó suspend đến khi promise
+  resolve) hoặc một context. Khác mọi hook khác, nó <em>có thể</em> được gọi trong điều kiện và
+  trong vòng lặp, vì nó không gắn với các ô theo thứ tự gọi cố định của hook. Đọc một promise bằng
+  <code>use(promise)</code> dưới một boundary <code>&lt;Suspense&gt;</code> để lấy dữ liệu ngay
+  trong render mà không cần state loading thủ công.
+</QA>
+
+<QA q="useOptimistic làm gì?">
+  Nó cho bạn hiển thị kết quả <strong>lạc quan (optimistic)</strong> ngay lập tức trong khi một
+  action bất đồng bộ vẫn đang pending, rồi hoà hợp với state thật khi action xong. Bạn render giá
+  trị lạc quan, và nếu action thất bại hoặc trả về khác đi, React tự động trả về state thực tế. Đây
+  là cách gọn để làm cho action có cảm giác tức thời (một tin nhắn vừa gửi, một post vừa like) mà
+  không phải tự viết logic rollback.
+</QA>
+
+<QA q="Refs thay đổi gì ở React 19 (ref như một prop)?">
+  Function component giờ có thể nhận <code>ref</code> như một prop bình thường, nên
+  <code>forwardRef</code> không còn cần cho trường hợp phổ biến — bạn chỉ cần khai báo
+  <code>function Input(&#123; ref, ...props &#125;)</code>. Ref cũng có thể trả về một hàm cleanup
+  từ ref callback. Đó là một cải thiện trải nghiệm nhỏ, loại bỏ một lớp boilerplate quanh các
+  component tái dùng.
+</QA>
+
+<QA q="React Compiler là gì và nó thay đổi điều gì?">
+  React Compiler tự động memo hoá component và giá trị tại thời điểm build, nên trong nhiều trường
+  hợp bạn không còn phải tự viết <code>useMemo</code>, <code>useCallback</code>, hay{" "}
+  <code>memo</code> — nó tự suy ra cái gì có thể cache miễn là code của bạn tuân theo Rules of React
+  (render thuần, không mutate). Phần thưởng là ít tối ưu thủ công và ít bug stale-dep hơn; cái giá
+  là component của bạn phải thực sự thuần thì mới an toàn.
+</QA>
+
+## Thực chiến / "bạn sẽ làm gì"
+
+<QA q="Một callback log ra giá trị cũ — bạn chẩn đoán stale closure thế nào?">
+  Hàm đã bắt các biến từ lần render lúc nó được tạo, nên nó 'thấy' snapshot của lần render đó.
+  Thường nó đến từ một effect hay callback đã memo bị thiếu dependency, hoặc một subscription/timer
+  sống lâu được tạo một lần. Cách sửa là thêm dependency thật (để closure được tạo lại), dùng dạng
+  updater
+  <code>setX(prev =&gt; …)</code> để khỏi phụ thuộc giá trị, hoặc đưa giá trị mới nhất vào một ref /
+  một Effect Event.
+</QA>
+
+<QA q="Bạn thấy một effect copy một prop vào state mỗi khi nó đổi — bạn làm gì?">
+  Đó là mùi điển hình của 'bạn có thể không cần Effect': đồng bộ state bằng effect gây thêm một lần
+  render và có thể nháy dữ liệu cũ. Nếu giá trị được <em>suy ra</em> từ props, hãy tính ngay trong
+  lúc render (chỉ memo nếu đắt). Nếu bạn cần <em>reset</em> một phần state khi prop đổi, hãy ưu tiên
+  cho component một <code>key</code> để React remount nó sạch sẽ thay vì vá nó trong một effect.
+</QA>
+
+<QA q="Những triệu chứng nào chỉ ra một key sai trong danh sách?">
+  Dấu hiệu nhận biết: sau khi đổi thứ tự hoặc xoá, text của một input hay trạng thái checkbox 'dính'
+  vào sai dòng; focus nhảy lung tung; animation của một item chạy trên sai phần tử; hoặc state của
+  một item đã xoá rò sang một item mới. Nguyên nhân thường là dùng index làm key hoặc một key không
+  ổn định giữa các render. Hãy đổi sang một id ổn định suy ra từ dữ liệu.
+</QA>
+
+<QA q="setState chạy rồi mà giá trị không đổi ngay — vì sao, và đó có phải bug không?">
+  Không phải bug — cập nhật state là một <strong>yêu cầu</strong>, không phải thay đổi tức thì. Biến
+  trong render hiện tại là một snapshot; giá trị mới xuất hiện ở lần render <em>kế tiếp</em>, và
+  React gộp (batch) các cập nhật trong một sự kiện. Nếu cần tính từ giá trị mới nhất, dùng dạng
+  updater
+  <code>setCount(c =&gt; c + 1)</code>; nếu cần phản ứng với giá trị mới, hãy làm trong render hoặc
+  một effect, không phải ngay sau setter.
+</QA>
