@@ -1,0 +1,143 @@
+---
+topic: keeping-pure
+lang: en
+title: "Keeping components pure"
+summary: "What makes a component pure, why React assumes it, the difference between local and outside mutation, where side effects really belong, and how Strict Mode catches impurity for you."
+category: Fundamentals
+level: beginner
+order: 45
+readingTime: 9
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## A component is a function — keep it pure
+
+A **pure function** has two properties:
+
+1. **It minds its own business.** It doesn't change any objects or variables that existed before it was called.
+2. **Same inputs, same output.** Given the same arguments, it always returns the same result.
+
+React is built on this assumption: **every component must be a pure function of its props, state, and context.** Given the same inputs, it must return the same JSX — and rendering must not change anything that existed before render started.
+
+```jsx
+// ✅ pure: output depends only on the prop, nothing outside is touched
+function Recipe({ drinkers }) {
+  return (
+    <ol>
+      <li>Boil {drinkers} cups of water.</li>
+      <li>Add {drinkers} spoons of tea.</li>
+    </ol>
+  )
+}
+```
+
+## Impurity: mutating something from outside
+
+The classic violation is reading and writing a variable declared **outside** the component. Because React may render in any order, batch, or re-run components, a component that depends on shared mutable state produces different output on different renders.
+
+```jsx
+// 🐛 impure: `guest` lives outside and is mutated during render
+let guest = 0
+
+function Cup() {
+  guest = guest + 1 // changing a preexisting variable!
+  return <h2>Tea cup for guest #{guest}</h2>
+}
+
+// Rendering <Cup /> three times gives #2, #4, #6 — not #1, #2, #3.
+```
+
+The fix is to make the value flow in as a **prop** instead:
+
+```jsx
+// ✅ pure: each Cup is told which guest it is
+function Cup({ guest }) {
+  return <h2>Tea cup for guest #{guest}</h2>
+}
+```
+
+## Local mutation is fine
+
+Purity is about not touching things that existed **before** the render. Creating and mutating objects, arrays, or variables **during** the same render is completely fine — nothing outside can observe them yet.
+
+```jsx
+// ✅ `cups` is created fresh inside this render, then filled — local mutation
+function TeaGathering() {
+  const cups = []
+  for (let i = 1; i <= 12; i++) {
+    cups.push(<Cup key={i} guest={i} />)
+  }
+  return cups
+}
+```
+
+<Callout variant="note" title="The rule, precisely">
+  Don't mutate props, state, or anything that existed before the component was called. Things you
+  create *during* render — local variables, freshly-built arrays — are yours to mutate freely.
+</Callout>
+
+## Side effects belong outside render
+
+Rendering must be a pure calculation. Anything that _changes the world_ — updating the screen outside React, sending a request, setting a timer, writing to `localStorage` — is a **side effect**, and it must not happen during render.
+
+Side effects usually belong in one of two places:
+
+- **Event handlers** — functions that run _because the user did something_ (a click, a submit). They run during the interaction, not during render, so they're allowed to be impure.
+- **`useEffect`** — for synchronizing with an external system _after_ render commits, when no specific event fits. Reach for this last.
+
+```jsx
+// ❌ side effect during render
+function ProductPage({ product }) {
+  document.title = product.name // mutates the document while rendering
+  return <h1>{product.name}</h1>
+}
+
+// ✅ move it to an effect
+function ProductPage({ product }) {
+  useEffect(() => {
+    document.title = product.name
+  }, [product.name])
+  return <h1>{product.name}</h1>
+}
+```
+
+## Strict Mode catches impurity for you
+
+In development, React's `<StrictMode>` **calls each component function twice**. A pure component returns the same JSX both times, so the double call is invisible. An impure one — like the `guest` counter above — produces visibly wrong numbers, surfacing the bug immediately. It does not double-render in production.
+
+```jsx
+// main.jsx
+<StrictMode>
+  <App />
+</StrictMode>
+```
+
+<Callout variant="warn" title="Don't try to defeat the double render">
+  If Strict Mode breaks your component, the answer is never "render once." The double invocation is
+  exposing a real impurity that would also bite you under memoization, server rendering, or
+  concurrent features — fix the cause, don't silence the symptom.
+</Callout>
+
+## Why React demands this
+
+Purity isn't bureaucracy — it's what unlocks React's most important capabilities:
+
+- **Skipping work.** If a pure component's inputs haven't changed, React (and `memo`) can safely reuse the previous output instead of re-rendering.
+- **Server rendering.** A pure component returns the same markup on the server and the client.
+- **Concurrent rendering.** React can start rendering, pause, throw the work away, and restart — which is only safe if rendering had no side effects to undo.
+
+<Callout variant="interview" title='"What does it mean for a component to be pure?"'>
+  Same props/state/context → same JSX, and no mutation of anything that existed before render. It
+  matters because React relies on purity to memoize, render on the server, and interrupt/restart
+  rendering. Side effects go in event handlers or `useEffect`, never in the render body.
+</Callout>
+
+## Recap
+
+- A component must be a **pure function** of its props, state, and context.
+- Never mutate props, state, or variables/objects created outside the current render.
+- Mutating things you created **during** this render is fine.
+- Put side effects in **event handlers** or **`useEffect`**, never in the render body.
+- **Strict Mode** double-invokes components in dev to expose impurity — fix the cause, don't suppress it.
+- Purity is what lets React skip work, render on the server, and render concurrently.

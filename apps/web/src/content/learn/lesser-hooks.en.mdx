@@ -1,0 +1,133 @@
+---
+topic: lesser-hooks
+lang: en
+title: "Lesser-known hooks: useId, useSyncExternalStore & friends"
+summary: "The hooks you reach for less often but should recognize — useId for accessible IDs, useSyncExternalStore for external state, useLayoutEffect for pre-paint measurement, useImperativeHandle, and useDebugValue."
+category: Hooks
+level: intermediate
+order: 115
+readingTime: 11
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+Beyond the everyday hooks, React ships a handful you use rarely but should be able to recognize — and explain in an interview. Here's what each is for and when it's the right tool.
+
+## useId — stable, unique IDs for accessibility
+
+`useId` generates a unique string that's **stable across server and client renders**. Its job is wiring up accessibility attributes — connecting a `<label>` to an input, or an element to its `aria-describedby` — without hardcoding IDs that would collide if the component renders more than once.
+
+```jsx
+function PasswordField() {
+  const id = useId()
+  return (
+    <>
+      <label htmlFor={id}>Password</label>
+      <input id={id} type="password" aria-describedby={`${id}-hint`} />
+      <p id={`${id}-hint`}>Must be at least 8 characters.</p>
+    </>
+  )
+}
+```
+
+<Callout variant="warn" title="Not for list keys">
+  `useId` is for DOM IDs, not for keys in a list. Keys must come from your data ([Rendering lists
+  &amp; keys](/learn/lists-keys)). The reason `useId` exists at all is hydration: a random ID would
+  differ between server and client and break SSR — `useId` produces the same value on both.
+</Callout>
+
+## useSyncExternalStore — subscribing to non-React state
+
+`useSyncExternalStore` lets a component read and subscribe to a store that lives **outside React** — a global state library, a browser API, anything with a subscribe/snapshot shape. It's the officially-blessed way to integrate external stores so they work correctly with concurrent rendering (no tearing).
+
+```jsx
+function useOnlineStatus() {
+  return useSyncExternalStore(
+    (callback) => {
+      // subscribe: return an unsubscribe function
+      window.addEventListener("online", callback)
+      window.addEventListener("offline", callback)
+      return () => {
+        window.removeEventListener("online", callback)
+        window.removeEventListener("offline", callback)
+      }
+    },
+    () => navigator.onLine, // getSnapshot: current value on the client
+    () => true, // getServerSnapshot: value during SSR
+  )
+}
+```
+
+You rarely call this directly in app code — it's mostly used _inside_ libraries like Redux, Zustand, and Jotai. But knowing it exists explains how those libraries stay safe under React 18's concurrent features.
+
+## useLayoutEffect — measure before the browser paints
+
+`useLayoutEffect` is identical to `useEffect` except it fires **synchronously after DOM mutations but before the browser paints**. Use it for the narrow case where you must measure layout (an element's size or position) and adjust _before_ the user sees a frame — e.g. positioning a tooltip so it doesn't flash in the wrong spot.
+
+```jsx
+function Tooltip() {
+  const ref = useRef(null)
+  const [height, setHeight] = useState(0)
+
+  useLayoutEffect(() => {
+    setHeight(ref.current.getBoundingClientRect().height) // measure pre-paint
+  }, [])
+
+  // ...position using `height` before paint, no flicker
+}
+```
+
+<Callout variant="warn" title="It blocks paint — default to useEffect">
+  Because it runs synchronously before paint, `useLayoutEffect` can hurt performance if overused,
+  and it doesn't run during server rendering (React warns about it in SSR). Reach for plain
+  `useEffect` unless you actually see a visual flicker that only a pre-paint measurement can fix.
+</Callout>
+
+## useImperativeHandle — customize the ref a parent receives
+
+Most of the time you let a parent's ref point straight at a DOM node. `useImperativeHandle` lets a component expose a **custom imperative API** through its ref instead — handy for exposing `focus()`, `scrollIntoView()`, or `play()` while hiding the raw node.
+
+```jsx
+function FancyInput({ ref }) {
+  // React 19: ref is a prop. Pre-19, wrap in forwardRef.
+  const inputRef = useRef(null)
+  useImperativeHandle(ref, () => ({
+    focus: () => inputRef.current.focus(),
+    clear: () => {
+      inputRef.current.value = ""
+    },
+  }))
+  return <input ref={inputRef} />
+}
+
+// Parent: fancyRef.current.focus()
+```
+
+Use it sparingly — imperative APIs go against React's declarative grain. Prefer passing props; reach for this only for genuinely imperative actions (focus, scroll, media playback).
+
+## useDebugValue — label custom hooks in DevTools
+
+A small one: `useDebugValue` adds a readable label to a custom hook in React DevTools. It does nothing at runtime and is purely a debugging aid for shared hooks.
+
+```jsx
+function useOnlineStatus() {
+  const isOnline = useSyncExternalStore(/* ... */)
+  useDebugValue(isOnline ? "Online" : "Offline")
+  return isOnline
+}
+```
+
+<Callout variant="interview" title='"useEffect vs useLayoutEffect?"'>
+  Both run after render, but `useEffect` fires *after* paint (async, non-blocking) and
+  `useLayoutEffect` fires *before* paint (synchronous, blocking). Use `useLayoutEffect` only to
+  measure/adjust the DOM before the user sees it — otherwise `useEffect`, which won't block the
+  visual update or warn during SSR.
+</Callout>
+
+## Recap
+
+- **`useId`** — unique, SSR-stable IDs for accessibility attributes; never for list keys.
+- **`useSyncExternalStore`** — subscribe to non-React stores safely under concurrent rendering; mostly used inside state libraries.
+- **`useLayoutEffect`** — like `useEffect` but fires before paint, for measuring layout without flicker; blocks paint, so default to `useEffect`.
+- **`useImperativeHandle`** — expose a custom imperative API through a ref; use sparingly.
+- **`useDebugValue`** — label a custom hook in DevTools; debugging only.

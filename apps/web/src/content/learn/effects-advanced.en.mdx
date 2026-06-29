@@ -1,0 +1,150 @@
+---
+topic: effects-advanced
+lang: en
+title: "Effects in depth: lifecycle, Effect Events & dependencies"
+summary: "The real lifecycle of an effect (start/stop syncing, not mount/unmount), what makes a value reactive, separating non-reactive logic with Effect Events, and how to remove dependencies honestly."
+category: Hooks
+level: intermediate
+order: 65
+readingTime: 13
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+This builds on [useEffect & side effects](/learn/useeffect). Once you've internalised that an effect _synchronizes_ with an external system, three deeper ideas explain almost every effect bug: the lifecycle, reactivity, and how to shrink the dependency list without lying to the linter.
+
+## An effect's lifecycle is start/stop, not mount/update
+
+A component's lifecycle is mount → update → unmount. An effect has a different, smaller lifecycle: it can only **start synchronizing** and later **stop synchronizing**. That's it.
+
+Don't think "this runs on mount and cleans up on unmount." Think "this _starts_ syncing to `roomId`, and stops syncing when `roomId` no longer matches." When a dependency changes, React stops the old synchronization and starts a new one — it does **not** care whether the component mounted or merely re-rendered.
+
+```jsx
+function ChatRoom({ roomId }) {
+  useEffect(() => {
+    const connection = createConnection(roomId)
+    connection.connect() // start syncing to roomId
+    return () => connection.disconnect() // stop syncing to roomId
+  }, [roomId])
+}
+```
+
+Reading each effect as a self-contained "start/stop" pair — rather than a timeline of the component — is the single most useful reframing for getting effects right.
+
+## What makes a value "reactive"
+
+The dependency list isn't yours to choose; it's dictated by which **reactive values** the effect reads. A value is reactive if it can change on a re-render:
+
+- **Props** — change when the parent re-renders.
+- **State** — changes when you set it.
+- **Values computed from props or state** during render — reactive by inheritance.
+
+A value is **not** reactive if it can't change between renders:
+
+- Variables and functions declared **outside the component** (module scope).
+- `let`/`const` you create inside but that come from non-reactive sources only.
+
+```jsx
+const serverUrl = "https://localhost:1234" // module scope → NOT reactive
+
+function ChatRoom({ roomId }) {
+  // roomId is reactive (a prop); serverUrl is not
+  useEffect(() => {
+    const conn = createConnection(serverUrl, roomId)
+    conn.connect()
+    return () => conn.disconnect()
+  }, [roomId]) // serverUrl needn't be listed — it can never change
+}
+```
+
+<Callout variant="note" title="The linter is computing, not nagging">
+  `react-hooks/exhaustive-deps` reports every reactive value you read but didn't list. It isn't an
+  opinion — a missing reactive dependency is a stale-value bug waiting to happen. Treat a lint
+  warning as "your dependency list is factually wrong," then fix the code, not the list.
+</Callout>
+
+## Effect Events: non-reactive logic inside a reactive effect
+
+Sometimes an effect needs to _read_ a reactive value without _reacting_ to it. Classic case: you connect to a chat room (should re-sync when `roomId` changes) but you also want to show a toast using the current `theme` — and changing the theme should **not** reconnect you.
+
+If you read `theme` in the effect, the linter (correctly) demands it as a dependency, and now switching themes tears down the connection. Suppressing the lint would reintroduce stale bugs. The intended tool is **`useEffectEvent`**: it wraps the non-reactive part. An Effect Event always "sees" the latest props and state, but it does **not** count as a dependency.
+
+```jsx
+import { useEffect, useEffectEvent } from "react"
+
+function ChatRoom({ roomId, theme }) {
+  const onConnected = useEffectEvent(() => {
+    showToast("Connected!", theme) // reads the LATEST theme, non-reactively
+  })
+
+  useEffect(() => {
+    const conn = createConnection(roomId)
+    conn.on("connected", () => onConnected())
+    conn.connect()
+    return () => conn.disconnect()
+  }, [roomId]) // theme is NOT a dependency — only roomId re-syncs
+}
+```
+
+<Callout variant="warn" title="useEffectEvent is experimental — and has rules">
+  At time of writing `useEffectEvent` ships only in React's experimental/canary builds. When you do
+  use it: only **call** Effect Events from inside Effects, and never pass them to other components
+  or hooks — they must stay local to the effect that owns them.
+</Callout>
+
+## Removing dependencies — honestly
+
+When the linter flags a dependency you wish wasn't there, the fix is **never** to silence it. Instead, prove the dependency is genuinely unnecessary by changing the code so the value is no longer reactive _inside the effect_. The main techniques:
+
+### Move static values out of the component
+
+A constant or a function that doesn't use props/state can live at module scope, where it isn't reactive and never needs listing.
+
+```jsx
+const options = { serverUrl: "https://localhost:1234" } // hoisted out → not reactive
+```
+
+### Move dynamic objects and functions inside the effect
+
+A `{}` or `() => {}` created during render is a new reference every render, so listing it makes the effect run every time. Create it **inside** the effect and depend on the primitives instead.
+
+```jsx
+// ✅ build the object inside; depend on the string, not the object
+useEffect(() => {
+  const options = { serverUrl, roomId }
+  const conn = createConnection(options)
+  conn.connect()
+  return () => conn.disconnect()
+}, [serverUrl, roomId])
+```
+
+### Use the functional updater to drop state deps
+
+If an effect only needs the _previous_ state to compute the next, read it via the updater so the state isn't a dependency.
+
+```jsx
+// depends on nothing — no `count` in deps
+useEffect(() => {
+  const id = setInterval(() => setCount((c) => c + 1), 1000)
+  return () => clearInterval(id)
+}, [])
+```
+
+### Split one effect into several
+
+If a single effect re-runs for two unrelated reasons, it's probably doing two jobs. One effect per synchronization concern usually shrinks each dependency list to exactly what it needs.
+
+<Callout variant="interview" title='"How do you legitimately remove an effect dependency?"'>
+  You change the code so the value is no longer a reactive value read inside the effect: hoist
+  constants out of the component, build dynamic objects inside the effect and depend on primitives,
+  use functional updaters for state, wrap non-reactive reads in an Effect Event, or split the
+  effect. You never just delete it from the array or disable the lint rule.
+</Callout>
+
+## Recap
+
+- An effect's lifecycle is **start syncing / stop syncing**, independent of mount/update/unmount.
+- A value is **reactive** if it can change between renders (props, state, things derived from them); module-scope constants are not.
+- The dependency list must contain every reactive value the effect reads — the linter computes it for you.
+- **Effect Events** (`useEffectEvent`, experimental) let an effect read the latest reactive value without re-running on its changes.
+- Remove dependencies by changing the code (hoist, move inside, functional updater, split), never by suppressing the linter.

@@ -1,0 +1,88 @@
+---
+topic: portals
+lang: vi
+title: "Portal với createPortal"
+summary: "Render children vào một phần DOM khác — cho modal, tooltip và dropdown — trong khi vẫn giữ chúng trong cây React, kèm cái bẫy event-bubbling khiến ai cũng vấp."
+category: Advanced
+level: intermediate
+order: 148
+readingTime: 8
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Vấn đề portal giải quyết
+
+Đôi khi một component cần render output vào một **vị trí khác trong DOM** so với chỗ nó nằm trong cây component. Trường hợp kinh điển là các lớp phủ — modal, tooltip, dropdown, popover. Nếu bạn render một modal bên trong một card lồng sâu, `overflow: hidden`, ngữ cảnh xếp chồng `z-index`, hay `transform` của cha có thể cắt xén hoặc đặt sai vị trí nó.
+
+`createPortal` cho phép một component giữ vị trí logic trong cây React trong khi render DOM **ở nơi khác** — thường là một node gần `document.body`, thoát khỏi mọi sự cắt xén đó.
+
+```jsx
+import { createPortal } from "react-dom"
+
+function Modal({ children, onClose }) {
+  return createPortal(
+    <div className="overlay" onClick={onClose}>
+      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+        {children}
+      </div>
+    </div>,
+    document.body, // node DOM để render vào
+  )
+}
+```
+
+`createPortal(children, domNode, key?)` nhận JSX cần render và node DOM có sẵn để render vào. Nó trả về thứ bạn đặt trong JSX như mọi element khác.
+
+## Nó vẫn ở trong cây React
+
+Đây là mô hình tư duy then chốt: portal chỉ đổi vị trí **DOM**, không đổi vị trí **React**. Component được portal vẫn là con của thứ đã render nó. Điều đó có hai hệ quả quan trọng:
+
+- **Context vẫn chảy vào bình thường.** Một `Modal` render qua portal vẫn đọc được mọi Context Provider phía trên nó trong cây React, dù DOM của nó nằm dưới `<body>`.
+- **Sự kiện bong bóng theo cây React, không phải cây DOM.** Một click bên trong portal sẽ bong bóng lên các handler của component cha React — chứ không phải lên element DOM nào đó tình cờ bọc node portal.
+
+<Callout variant="warn" title="Cái bẫy event-bubbling">
+  Vì sự kiện đi theo cây React, một click bên trong modal được portal sẽ kích hoạt `onClick` trên tổ
+  tiên React đã render nó — dù trong DOM, modal nằm ở chỗ hoàn toàn khác. Người ta mong đợi bong
+  bóng theo DOM rồi bất ngờ. Hãy tận dụng điều này (handler vẫn chạy) nhưng đừng giả định các phép
+  kiểm `event.target.closest()` theo DOM khớp với cấu trúc React.
+</Callout>
+
+## Một điểm gắn tái sử dụng
+
+Render vào `document.body` thì được, nhưng cho gọn gàng, nhiều app render vào một node chuyên dụng khai báo trong khung HTML:
+
+```html
+<!-- index.html -->
+<div id="root"></div>
+<div id="portal-root"></div>
+```
+
+```jsx
+const portalRoot = document.getElementById("portal-root")
+
+function Tooltip({ children }) {
+  return createPortal(children, portalRoot)
+}
+```
+
+<Callout variant="note" title="Đừng quên khả năng tiếp cận">
+  Portal di chuyển DOM, không di chuyển trách nhiệm. Modal vẫn cần quản lý focus (giam focus, khôi
+  phục khi đóng), một handler `Escape`, và đúng vai trò ARIA (`role="dialog"`, `aria-modal="true"`).
+  Portal giải quyết *vị trí*, không giải quyết *khả năng tiếp cận* — và cho production, một thư viện
+  headless (Radix, React Aria, Headless UI) lo cả hai để bạn khỏi phát minh lại.
+</Callout>
+
+<Callout variant="interview" title='"Modal portal vào body, sao onClick trên cha của nó vẫn chạy?"'>
+  Vì portal chỉ dời node DOM — trong cây React modal vẫn là con của cha đó, và sự kiện React lan
+  truyền theo cây *React*. Nên `onClick` của cha bắt được click bên trong portal. Dùng
+  `stopPropagation` (hoặc kiểm tra target) khi bạn cần cô lập chúng.
+</Callout>
+
+## Tóm tắt
+
+- `createPortal(children, domNode)` render `children` vào một **node DOM khác** trong khi giữ component trong cây React.
+- Dùng cho các lớp phủ — **modal, tooltip, dropdown** — phải thoát khỏi `overflow`, `z-index`, hay `transform` của cha.
+- Context vẫn chảy vào, và **sự kiện bong bóng theo cây React**, không phải cây DOM — cái bẫy kinh điển.
+- Render vào `document.body` hoặc một node `#portal-root` chuyên dụng.
+- Portal chỉ lo _vị trí_ — bạn vẫn phải tự lo quản lý focus và ARIA cho lớp phủ tiếp cận được.
