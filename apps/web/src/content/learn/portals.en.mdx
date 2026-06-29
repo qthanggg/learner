@@ -1,0 +1,92 @@
+---
+topic: portals
+lang: en
+title: "Portals with createPortal"
+summary: "Rendering children into a different part of the DOM — for modals, tooltips and dropdowns — while keeping them in the React tree, plus the event-bubbling gotcha that trips everyone up."
+category: Advanced
+level: intermediate
+order: 148
+readingTime: 8
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## The problem portals solve
+
+Sometimes a component needs to render its output into a **different place in the DOM** than where it sits in the component tree. The textbook cases are overlays — modals, tooltips, dropdowns, popovers. If you render a modal inside a deeply nested card, the parent's `overflow: hidden`, `z-index` stacking context, or `transform` can clip or mis-position it.
+
+`createPortal` lets a component keep its logical place in the React tree while rendering its DOM **somewhere else** — usually a node near `document.body`, free of all that clipping.
+
+```jsx
+import { createPortal } from "react-dom"
+
+function Modal({ children, onClose }) {
+  return createPortal(
+    <div className="overlay" onClick={onClose}>
+      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+        {children}
+      </div>
+    </div>,
+    document.body, // the DOM node to render into
+  )
+}
+```
+
+`createPortal(children, domNode, key?)` takes the JSX to render and the existing DOM node to render it into. It returns something you include in your JSX like any element.
+
+## It's still in the React tree
+
+This is the crucial mental model: a portal only changes the **DOM** position, not the **React** position. The portaled component is still a child of whatever rendered it. That has two important consequences:
+
+- **Context flows in normally.** A `Modal` rendered via portal still reads any Context Provider above it in the React tree, even though its DOM lives under `<body>`.
+- **Events bubble along the React tree, not the DOM tree.** A click inside the portal bubbles up to the React parent's handlers — not to whatever DOM element happens to physically wrap the portal node.
+
+<Callout variant="warn" title="The event-bubbling gotcha">
+  Because events follow the React tree, a click inside a portaled modal will trigger an `onClick` on
+  the React ancestor that rendered it — even though, in the DOM, the modal lives somewhere totally
+  different. People expect DOM-based bubbling and get surprised. Lean on this (handlers keep
+  working) but don't assume DOM `event.target.closest()` checks line up with the React structure.
+</Callout>
+
+## A reusable mount point
+
+Rendering into `document.body` works, but for cleanliness many apps render into a dedicated node declared in the HTML shell:
+
+```html
+<!-- index.html -->
+<div id="root"></div>
+<div id="portal-root"></div>
+```
+
+```jsx
+const portalRoot = document.getElementById("portal-root")
+
+function Tooltip({ children }) {
+  return createPortal(children, portalRoot)
+}
+```
+
+<Callout variant="note" title="Don't forget accessibility">
+  A portal moves DOM, not responsibility. Modals still need focus management (trap focus, restore it
+  on close), an `Escape` handler, and the right ARIA roles (`role="dialog"`, `aria-modal="true"`).
+  The portal solves *positioning*, not *accessibility* — and for production, a headless library
+  (Radix, React Aria, Headless UI) handles both so you don't reinvent it.
+</Callout>
+
+<Callout
+  variant="interview"
+  title='"If a modal is portaled to body, why does my onClick on its parent still fire?"'
+>
+  Because portals only relocate the DOM node — in the React tree the modal is still a child of that
+  parent, and React events propagate along the *React* tree. So the parent's `onClick` catches
+  clicks inside the portal. Use `stopPropagation` (or check the target) when you need to isolate
+  them.
+</Callout>
+
+## Recap
+
+- `createPortal(children, domNode)` renders `children` into a **different DOM node** while keeping the component in the React tree.
+- Use it for overlays — **modals, tooltips, dropdowns** — that must escape a parent's `overflow`, `z-index`, or `transform`.
+- Context still flows in, and **events bubble along the React tree**, not the DOM tree — the classic gotcha.
+- Render into `document.body` or a dedicated `#portal-root` node.
+- Portals handle _positioning only_ — you still own focus management and ARIA for accessible overlays.

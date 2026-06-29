@@ -1,0 +1,143 @@
+---
+topic: keeping-pure
+lang: vi
+title: "Giữ component thuần khiết"
+summary: "Thế nào là component thuần khiết, vì sao React mặc định như vậy, khác biệt giữa mutation cục bộ và mutation bên ngoài, side effect thực sự thuộc về đâu, và Strict Mode bắt lỗi không thuần khiết giúp bạn ra sao."
+category: Fundamentals
+level: beginner
+order: 45
+readingTime: 9
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Component là một hàm — hãy giữ nó thuần khiết
+
+Một **hàm thuần khiết** (pure function) có hai tính chất:
+
+1. **Lo việc của mình.** Nó không thay đổi bất kỳ object hay biến nào đã tồn tại trước khi nó được gọi.
+2. **Cùng input, cùng output.** Với cùng đối số, nó luôn trả về cùng kết quả.
+
+React được xây trên giả định này: **mọi component phải là một hàm thuần khiết của props, state và context.** Với cùng input, nó phải trả về cùng JSX — và quá trình render không được thay đổi bất cứ thứ gì đã tồn tại trước khi render bắt đầu.
+
+```jsx
+// ✅ thuần khiết: output chỉ phụ thuộc prop, không đụng gì bên ngoài
+function Recipe({ drinkers }) {
+  return (
+    <ol>
+      <li>Đun {drinkers} cốc nước.</li>
+      <li>Cho vào {drinkers} thìa trà.</li>
+    </ol>
+  )
+}
+```
+
+## Không thuần khiết: thay đổi thứ gì đó từ bên ngoài
+
+Vi phạm kinh điển là đọc và ghi một biến khai báo **bên ngoài** component. Vì React có thể render theo thứ tự bất kỳ, gộp lại, hoặc chạy lại component, một component phụ thuộc vào state khả biến dùng chung sẽ cho output khác nhau ở mỗi lần render.
+
+```jsx
+// 🐛 không thuần khiết: `guest` ở ngoài và bị thay đổi trong lúc render
+let guest = 0
+
+function Cup() {
+  guest = guest + 1 // sửa một biến đã tồn tại từ trước!
+  return <h2>Cốc trà cho khách #{guest}</h2>
+}
+
+// Render <Cup /> ba lần ra #2, #4, #6 — chứ không phải #1, #2, #3.
+```
+
+Cách sửa là cho giá trị chảy vào dưới dạng **prop**:
+
+```jsx
+// ✅ thuần khiết: mỗi Cup được cho biết nó là khách số mấy
+function Cup({ guest }) {
+  return <h2>Cốc trà cho khách #{guest}</h2>
+}
+```
+
+## Mutation cục bộ thì không sao
+
+Tính thuần khiết nói về việc không đụng vào những thứ đã tồn tại **trước** lần render. Tạo và thay đổi object, mảng, hay biến **trong** chính lần render đó hoàn toàn ổn — chưa có gì bên ngoài quan sát được chúng.
+
+```jsx
+// ✅ `cups` được tạo mới trong lần render này rồi đổ đầy — mutation cục bộ
+function TeaGathering() {
+  const cups = []
+  for (let i = 1; i <= 12; i++) {
+    cups.push(<Cup key={i} guest={i} />)
+  }
+  return cups
+}
+```
+
+<Callout variant="note" title="Quy tắc, nói chính xác">
+  Đừng mutate props, state, hay bất cứ thứ gì đã tồn tại trước khi component được gọi. Những thứ bạn
+  tạo ra *trong* lúc render — biến cục bộ, mảng vừa dựng — là của bạn, mutate thoải mái.
+</Callout>
+
+## Side effect thuộc về bên ngoài render
+
+Render phải là một phép tính thuần khiết. Bất cứ thứ gì _thay đổi thế giới_ — cập nhật màn hình ngoài React, gửi request, đặt timer, ghi vào `localStorage` — đều là **side effect**, và không được xảy ra trong lúc render.
+
+Side effect thường thuộc về một trong hai nơi:
+
+- **Event handler** — hàm chạy _vì người dùng làm gì đó_ (click, submit). Chúng chạy trong lúc tương tác, không phải lúc render, nên được phép không thuần khiết.
+- **`useEffect`** — để đồng bộ với hệ thống bên ngoài _sau khi_ render commit, khi không có sự kiện cụ thể nào phù hợp. Đây là lựa chọn cuối cùng.
+
+```jsx
+// ❌ side effect trong lúc render
+function ProductPage({ product }) {
+  document.title = product.name // sửa document khi đang render
+  return <h1>{product.name}</h1>
+}
+
+// ✅ chuyển vào effect
+function ProductPage({ product }) {
+  useEffect(() => {
+    document.title = product.name
+  }, [product.name])
+  return <h1>{product.name}</h1>
+}
+```
+
+## Strict Mode bắt lỗi không thuần khiết giúp bạn
+
+Ở môi trường dev, `<StrictMode>` của React **gọi mỗi hàm component hai lần**. Một component thuần khiết trả về cùng JSX cả hai lần, nên lần gọi kép vô hình. Component không thuần khiết — như bộ đếm `guest` ở trên — cho ra số sai rõ rệt, làm lộ bug ngay lập tức. Nó **không** render kép ở production.
+
+```jsx
+// main.jsx
+<StrictMode>
+  <App />
+</StrictMode>
+```
+
+<Callout variant="warn" title="Đừng tìm cách vô hiệu hoá render kép">
+  Nếu Strict Mode làm hỏng component của bạn, câu trả lời không bao giờ là "chỉ render một lần". Lần
+  gọi kép đang phơi bày một sự không thuần khiết thật sự — thứ cũng sẽ cắn bạn khi memoize, render
+  phía server, hay dùng concurrent. Hãy sửa nguyên nhân, đừng dập triệu chứng.
+</Callout>
+
+## Vì sao React đòi hỏi điều này
+
+Tính thuần khiết không phải thủ tục rườm rà — nó mở khoá những năng lực quan trọng nhất của React:
+
+- **Bỏ qua việc thừa.** Nếu input của một component thuần khiết không đổi, React (và `memo`) có thể tái dùng output cũ một cách an toàn thay vì render lại.
+- **Server rendering.** Một component thuần khiết trả về cùng markup ở server và client.
+- **Concurrent rendering.** React có thể bắt đầu render, tạm dừng, vứt bỏ rồi chạy lại — điều này chỉ an toàn nếu render không có side effect nào cần hoàn tác.
+
+<Callout variant="interview" title='"Component thuần khiết nghĩa là gì?"'>
+  Cùng props/state/context → cùng JSX, và không mutate bất cứ thứ gì đã tồn tại trước render. Nó
+  quan trọng vì React dựa vào tính thuần khiết để memoize, render phía server, và ngắt/chạy lại
+  render. Side effect đặt trong event handler hoặc `useEffect`, không bao giờ trong thân render.
+</Callout>
+
+## Tóm tắt
+
+- Component phải là một **hàm thuần khiết** của props, state và context.
+- Không bao giờ mutate props, state, hay biến/object tạo ra bên ngoài lần render hiện tại.
+- Mutate những thứ bạn tạo **trong** lần render này thì không sao.
+- Đặt side effect trong **event handler** hoặc **`useEffect`**, không bao giờ trong thân render.
+- **Strict Mode** gọi component hai lần ở dev để phơi bày sự không thuần khiết — sửa nguyên nhân, đừng triệt tiêu nó.
+- Tính thuần khiết là thứ cho phép React bỏ qua việc thừa, render phía server, và render concurrent.

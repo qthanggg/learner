@@ -1,0 +1,133 @@
+---
+topic: error-boundaries
+lang: vi
+title: "Error boundary"
+summary: "Bắt lỗi lúc render để một component hỏng không làm trắng cả app — API class, boundary bắt và không bắt gì, thư viện react-error-boundary, và đặt chúng ở đâu."
+category: Advanced
+level: intermediate
+order: 145
+readingTime: 10
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+## Vì sao chúng tồn tại
+
+Mặc định, một lỗi JavaScript ném ra khi React đang render một component sẽ **unmount toàn bộ cây** bên dưới root — người dùng thấy màn hình trắng. Điều đó là cố ý: một UI hỏng còn tệ hơn không có UI. Nhưng làm trắng cả app chỉ vì một widget hỏng là trải nghiệm tồi.
+
+Một **error boundary** là component bắt các lỗi mà children của nó ném ra trong lúc render, hiện UI dự phòng thay thế, và giữ phần còn lại của app sống. Hãy coi nó như `try/catch`, nhưng cho cây render của React.
+
+## API class (cách built-in duy nhất)
+
+Vẫn chưa có phiên bản Hook cho error boundary. Bạn viết một class component cài đặt một hoặc cả hai phương thức sau:
+
+- **`static getDerivedStateFromError(error)`** — chạy trong pha "render"; trả về state mới để hiện fallback.
+- **`componentDidCatch(error, info)`** — chạy trong pha "commit"; là nơi để **log** lỗi tới dịch vụ báo cáo.
+
+```jsx
+import { Component } from "react"
+
+class ErrorBoundary extends Component {
+  state = { hasError: false }
+
+  static getDerivedStateFromError() {
+    return { hasError: true } // lật sang fallback ở lần render kế
+  }
+
+  componentDidCatch(error, info) {
+    logToService(error, info.componentStack) // side effect: báo cáo lỗi
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback ?? <p>Đã có lỗi xảy ra.</p>
+    }
+    return this.props.children
+  }
+}
+```
+
+Dùng bằng cách bọc một cây con bất kỳ:
+
+```jsx
+<ErrorBoundary fallback={<ErrorPage />}>
+  <Profile />
+</ErrorBoundary>
+```
+
+## Boundary bắt và không bắt gì
+
+Một boundary bắt lỗi ném ra **trong lúc React render** ở bất cứ đâu bên dưới nó — trong render, trong các lifecycle method, và trong constructor của cả cây phía dưới.
+
+Nó **không** bắt lỗi từ:
+
+- **Event handler** — chúng chạy ngoài render; dùng `try/catch` bình thường ở đó.
+- **Code bất đồng bộ** — `setTimeout`, `requestAnimationFrame`, callback của promise, `.then` của `fetch`.
+- **Server-side rendering.**
+- **Chính component boundary đó** — chỉ lỗi từ _children_. Hãy để một boundary cao hơn bắt lỗi của chính nó.
+
+<Callout variant="warn" title="Event handler cần try/catch riêng">
+  Bất ngờ phổ biến nhất: một `throw` bên trong `onClick` lướt qua mọi error boundary, vì handler
+  không chạy trong lúc render. Hãy bọc logic handler rủi ro trong `try/catch` và tự phơi lỗi qua
+  state.
+</Callout>
+
+## Lựa chọn thực dụng: react-error-boundary
+
+Vì tự viết class cho mỗi project rất mất công — và bạn thường muốn cơ chế _reset_ — đa số app dùng thư viện nhỏ **`react-error-boundary`**. Nó cho bạn một boundary sẵn sàng kèm hỗ trợ reset:
+
+```jsx
+import { ErrorBoundary } from "react-error-boundary"
+
+function Fallback({ error, resetErrorBoundary }) {
+  return (
+    <div role="alert">
+      <p>Có gì đó hỏng: {error.message}</p>
+      <button onClick={resetErrorBoundary}>Thử lại</button>
+    </div>
+  )
+}
+
+;<ErrorBoundary
+  FallbackComponent={Fallback}
+  onReset={() => {
+    /* xoá state đã gây ra lỗi */
+  }}
+  resetKeys={[userId]} // tự reset khi những giá trị này đổi
+>
+  <Profile userId={userId} />
+</ErrorBoundary>
+```
+
+`resetKeys` là điểm tiện lợi then chốt: khi một giá trị được liệt kê đổi (ví dụ người dùng chuyển sang profile khác), boundary tự xoá lỗi và thử lại.
+
+## Đặt chúng ở đâu
+
+Độ mịn (granularity) là một quyết định thiết kế:
+
+- **Một cái ở trên cùng** app biến mọi sự cố thành một trang lỗi thân thiện duy nhất — mức tối thiểu an toàn.
+- **Quanh các vùng độc lập** (sidebar, panel chat, widget dashboard) giữ sự cố ở phạm vi cục bộ: panel đó hiện fallback còn phần còn lại của trang vẫn chạy bình thường.
+
+Mẫu phổ biến là lồng một boundary thô ở cấp cao nhất với các boundary mịn hơn quanh những widget rủi ro hoặc độc lập.
+
+<Callout variant="tip" title="Kết hợp tự nhiên với Suspense">
+  Error boundary xử lý trạng thái *thất bại*; một boundary `<Suspense>` xử lý trạng thái *đang tải*.
+  Bọc một cây con lazy/fetch dữ liệu trong cả hai cho bạn một UI bất đồng bộ trọn vẹn — fallback khi
+  đang chờ, UI lỗi nếu nó reject. Xem [Suspense, lazy &amp; concurrent
+  UI](/learn/concurrent-suspense).
+</Callout>
+
+<Callout variant="interview" title='"Vì sao không có hook useErrorBoundary?"'>
+  Bắt lỗi render đòi hỏi lifecycle `getDerivedStateFromError` / `componentDidCatch`, thứ chỉ class
+  component mới có — đội React chưa ra phiên bản Hook tương đương. Thực tế bạn dùng một class tái sử
+  dụng (hoặc gói `react-error-boundary`) ở trên cùng cây. Nhớ rằng nó chỉ bắt lỗi render/lifecycle,
+  không bắt event handler hay code bất đồng bộ.
+</Callout>
+
+## Tóm tắt
+
+- Một lỗi render không được bắt sẽ unmount cả cây; boundary bắt nó và hiện fallback thay thế.
+- Boundary là **class component** dùng `getDerivedStateFromError` (render fallback) và/hoặc `componentDidCatch` (log).
+- Chúng bắt lỗi trong **render, lifecycle, và constructor** bên dưới — **không** bắt event handler, code bất đồng bộ, SSR, hay chính boundary đó.
+- Với event, dùng `try/catch`; vẫn **chưa có** phiên bản Hook cho boundary.
+- **`react-error-boundary`** thêm hỗ trợ reset (`resetErrorBoundary`, `resetKeys`); đặt boundary ở trên cùng và quanh các vùng độc lập.

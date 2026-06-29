@@ -1,0 +1,133 @@
+---
+topic: lesser-hooks
+lang: vi
+title: "Các hook ít gặp: useId, useSyncExternalStore & bạn bè"
+summary: "Những hook bạn ít dùng nhưng nên nhận diện được — useId cho ID tiếp cận được, useSyncExternalStore cho state bên ngoài, useLayoutEffect để đo trước khi paint, useImperativeHandle, và useDebugValue."
+category: Hooks
+level: intermediate
+order: 115
+readingTime: 11
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+Ngoài các hook hằng ngày, React còn có một nhúm hook bạn dùng hiếm khi nhưng nên nhận ra được — và giải thích được khi phỏng vấn. Đây là công dụng của từng cái và khi nào nó là công cụ đúng.
+
+## useId — ID duy nhất, ổn định cho khả năng tiếp cận
+
+`useId` sinh một chuỗi duy nhất **ổn định giữa render server và client**. Việc của nó là nối dây các thuộc tính tiếp cận (accessibility) — liên kết `<label>` với input, hoặc một element với `aria-describedby` của nó — mà không hardcode ID, thứ sẽ đụng độ nếu component render nhiều hơn một lần.
+
+```jsx
+function PasswordField() {
+  const id = useId()
+  return (
+    <>
+      <label htmlFor={id}>Mật khẩu</label>
+      <input id={id} type="password" aria-describedby={`${id}-hint`} />
+      <p id={`${id}-hint`}>Tối thiểu 8 ký tự.</p>
+    </>
+  )
+}
+```
+
+<Callout variant="warn" title="Không dùng cho key của list">
+  `useId` dành cho ID của DOM, không dành cho key trong list. Key phải đến từ dữ liệu của bạn
+  ([Render list &amp; key](/learn/lists-keys)). Lý do `useId` tồn tại là hydration: một ID ngẫu
+  nhiên sẽ khác nhau giữa server và client và phá vỡ SSR — `useId` cho cùng giá trị ở cả hai.
+</Callout>
+
+## useSyncExternalStore — đăng ký state ngoài React
+
+`useSyncExternalStore` cho phép một component đọc và đăng ký một store nằm **ngoài React** — một thư viện global state, một API trình duyệt, bất cứ thứ gì có dạng subscribe/snapshot. Đây là cách được chính thức công nhận để tích hợp store bên ngoài sao cho chúng chạy đúng với concurrent rendering (không bị "tearing").
+
+```jsx
+function useOnlineStatus() {
+  return useSyncExternalStore(
+    (callback) => {
+      // subscribe: trả về một hàm huỷ đăng ký
+      window.addEventListener("online", callback)
+      window.addEventListener("offline", callback)
+      return () => {
+        window.removeEventListener("online", callback)
+        window.removeEventListener("offline", callback)
+      }
+    },
+    () => navigator.onLine, // getSnapshot: giá trị hiện tại ở client
+    () => true, // getServerSnapshot: giá trị lúc SSR
+  )
+}
+```
+
+Bạn hiếm khi gọi trực tiếp cái này trong code app — nó chủ yếu được dùng _bên trong_ các thư viện như Redux, Zustand, và Jotai. Nhưng biết nó tồn tại sẽ giải thích vì sao các thư viện đó an toàn dưới tính năng concurrent của React 18.
+
+## useLayoutEffect — đo trước khi trình duyệt paint
+
+`useLayoutEffect` giống hệt `useEffect` trừ việc nó chạy **đồng bộ sau khi mutate DOM nhưng trước khi trình duyệt paint**. Dùng nó cho trường hợp hẹp khi bạn phải đo layout (kích thước hay vị trí của một element) và chỉnh _trước_ khi người dùng thấy một khung hình — ví dụ định vị tooltip để nó không nháy ở sai chỗ.
+
+```jsx
+function Tooltip() {
+  const ref = useRef(null)
+  const [height, setHeight] = useState(0)
+
+  useLayoutEffect(() => {
+    setHeight(ref.current.getBoundingClientRect().height) // đo trước paint
+  }, [])
+
+  // ...định vị bằng `height` trước khi paint, không nháy
+}
+```
+
+<Callout variant="warn" title="Nó chặn paint — mặc định hãy dùng useEffect">
+  Vì chạy đồng bộ trước paint, `useLayoutEffect` có thể hại hiệu năng nếu lạm dụng, và nó không chạy
+  khi server render (React cảnh báo về nó trong SSR). Hãy dùng `useEffect` thường, trừ khi bạn thực
+  sự thấy một cú nháy hình mà chỉ phép đo trước-paint mới sửa được.
+</Callout>
+
+## useImperativeHandle — tuỳ biến ref mà cha nhận được
+
+Phần lớn thời gian bạn để ref của cha trỏ thẳng vào một node DOM. `useImperativeHandle` cho phép một component phơi ra một **API mệnh lệnh tuỳ biến** qua ref của nó — tiện để lộ `focus()`, `scrollIntoView()`, hay `play()` trong khi giấu node thô.
+
+```jsx
+function FancyInput({ ref }) {
+  // React 19: ref là một prop. Trước 19, bọc trong forwardRef.
+  const inputRef = useRef(null)
+  useImperativeHandle(ref, () => ({
+    focus: () => inputRef.current.focus(),
+    clear: () => {
+      inputRef.current.value = ""
+    },
+  }))
+  return <input ref={inputRef} />
+}
+
+// Cha: fancyRef.current.focus()
+```
+
+Dùng nó dè dặt — API mệnh lệnh đi ngược với tinh thần khai báo của React. Hãy ưu tiên truyền props; chỉ dùng cái này cho những hành động thực sự mệnh lệnh (focus, scroll, phát media).
+
+## useDebugValue — gán nhãn custom hook trong DevTools
+
+Một cái nhỏ: `useDebugValue` thêm một nhãn dễ đọc cho một custom hook trong React DevTools. Nó không làm gì lúc runtime và thuần tuý là công cụ debug cho các hook dùng chung.
+
+```jsx
+function useOnlineStatus() {
+  const isOnline = useSyncExternalStore(/* ... */)
+  useDebugValue(isOnline ? "Online" : "Offline")
+  return isOnline
+}
+```
+
+<Callout variant="interview" title='"useEffect và useLayoutEffect khác gì?"'>
+  Cả hai chạy sau render, nhưng `useEffect` chạy *sau* paint (bất đồng bộ, không chặn) còn
+  `useLayoutEffect` chạy *trước* paint (đồng bộ, chặn). Chỉ dùng `useLayoutEffect` để đo/chỉnh DOM
+  trước khi người dùng thấy — còn lại dùng `useEffect`, thứ không chặn cập nhật hình và không cảnh
+  báo khi SSR.
+</Callout>
+
+## Tóm tắt
+
+- **`useId`** — ID duy nhất, ổn định cho SSR, cho thuộc tính tiếp cận; không bao giờ dùng cho key của list.
+- **`useSyncExternalStore`** — đăng ký store ngoài React an toàn dưới concurrent rendering; chủ yếu dùng trong các thư viện state.
+- **`useLayoutEffect`** — như `useEffect` nhưng chạy trước paint, để đo layout không nháy; chặn paint, nên mặc định dùng `useEffect`.
+- **`useImperativeHandle`** — phơi API mệnh lệnh tuỳ biến qua ref; dùng dè dặt.
+- **`useDebugValue`** — gán nhãn custom hook trong DevTools; chỉ để debug.

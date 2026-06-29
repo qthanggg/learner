@@ -1,0 +1,150 @@
+---
+topic: effects-advanced
+lang: vi
+title: "Effect chuyên sâu: vòng đời, Effect Event & dependency"
+summary: "Vòng đời thật của effect (bắt đầu/dừng đồng bộ, không phải mount/unmount), điều gì khiến một giá trị là reactive, tách logic không-reactive bằng Effect Event, và cách loại bỏ dependency một cách trung thực."
+category: Hooks
+level: intermediate
+order: 65
+readingTime: 13
+---
+
+import Callout from "../../components/react/learn/Callout.tsx"
+
+Bài này nối tiếp [useEffect & side effect](/learn/useeffect). Khi bạn đã thấm rằng effect là để _đồng bộ_ với một hệ thống bên ngoài, ba ý niệm sâu hơn sẽ giải thích gần như mọi bug effect: vòng đời, tính reactive, và cách thu nhỏ danh sách dependency mà không nói dối linter.
+
+## Vòng đời effect là bắt đầu/dừng, không phải mount/update
+
+Vòng đời của component là mount → update → unmount. Effect có một vòng đời khác, nhỏ hơn: nó chỉ có thể **bắt đầu đồng bộ** rồi sau đó **dừng đồng bộ**. Chỉ vậy thôi.
+
+Đừng nghĩ "cái này chạy lúc mount và dọn dẹp lúc unmount". Hãy nghĩ "cái này _bắt đầu_ đồng bộ tới `roomId`, và dừng đồng bộ khi `roomId` không còn khớp". Khi một dependency đổi, React dừng đồng bộ cũ và bắt đầu đồng bộ mới — nó **không** quan tâm component vừa mount hay chỉ re-render.
+
+```jsx
+function ChatRoom({ roomId }) {
+  useEffect(() => {
+    const connection = createConnection(roomId)
+    connection.connect() // bắt đầu đồng bộ tới roomId
+    return () => connection.disconnect() // dừng đồng bộ tới roomId
+  }, [roomId])
+}
+```
+
+Đọc mỗi effect như một cặp "bắt đầu/dừng" độc lập — thay vì một dòng thời gian của component — là cách nhìn hữu ích nhất để viết effect cho đúng.
+
+## Điều gì khiến một giá trị là "reactive"
+
+Danh sách dependency không phải để bạn tuỳ chọn; nó bị quyết định bởi những **giá trị reactive** mà effect đọc. Một giá trị là reactive nếu nó có thể đổi sau một lần re-render:
+
+- **Props** — đổi khi component cha re-render.
+- **State** — đổi khi bạn set nó.
+- **Giá trị tính từ props hoặc state** trong lúc render — reactive theo "thừa kế".
+
+Một giá trị **không** reactive nếu nó không thể đổi giữa các lần render:
+
+- Biến và hàm khai báo **ngoài component** (phạm vi module).
+- `let`/`const` bạn tạo bên trong nhưng chỉ đến từ nguồn không-reactive.
+
+```jsx
+const serverUrl = "https://localhost:1234" // phạm vi module → KHÔNG reactive
+
+function ChatRoom({ roomId }) {
+  // roomId là reactive (một prop); serverUrl thì không
+  useEffect(() => {
+    const conn = createConnection(serverUrl, roomId)
+    conn.connect()
+    return () => conn.disconnect()
+  }, [roomId]) // không cần liệt kê serverUrl — nó không bao giờ đổi
+}
+```
+
+<Callout variant="note" title="Linter đang tính toán, không phải cằn nhằn">
+  `react-hooks/exhaustive-deps` báo mọi giá trị reactive bạn đọc nhưng không liệt kê. Đó không phải
+  ý kiến — một dependency reactive bị thiếu là một bug giá-trị-cũ chực chờ. Hãy coi cảnh báo lint là
+  "danh sách dependency của bạn sai về mặt sự thật", rồi sửa code, đừng sửa danh sách.
+</Callout>
+
+## Effect Event: logic không-reactive bên trong effect reactive
+
+Đôi khi effect cần _đọc_ một giá trị reactive mà không _phản ứng_ theo nó. Trường hợp kinh điển: bạn kết nối tới phòng chat (nên đồng bộ lại khi `roomId` đổi) nhưng cũng muốn hiện toast dùng `theme` hiện tại — và đổi theme thì **không** nên kết nối lại.
+
+Nếu bạn đọc `theme` trong effect, linter (đúng đắn) đòi nó làm dependency, và giờ đổi theme sẽ phá huỷ kết nối. Tắt lint sẽ làm bug giá-trị-cũ quay lại. Công cụ đúng là **`useEffectEvent`**: nó bọc phần không-reactive. Một Effect Event luôn "thấy" props và state mới nhất, nhưng **không** tính là dependency.
+
+```jsx
+import { useEffect, useEffectEvent } from "react"
+
+function ChatRoom({ roomId, theme }) {
+  const onConnected = useEffectEvent(() => {
+    showToast("Đã kết nối!", theme) // đọc theme MỚI NHẤT, không reactive
+  })
+
+  useEffect(() => {
+    const conn = createConnection(roomId)
+    conn.on("connected", () => onConnected())
+    conn.connect()
+    return () => conn.disconnect()
+  }, [roomId]) // theme KHÔNG phải dependency — chỉ roomId đồng bộ lại
+}
+```
+
+<Callout variant="warn" title="useEffectEvent là thử nghiệm — và có luật">
+  Tại thời điểm viết, `useEffectEvent` chỉ có trong bản experimental/canary của React. Khi dùng: chỉ
+  **gọi** Effect Event từ bên trong Effect, và không bao giờ truyền nó sang component hay hook khác
+  — nó phải ở lại cục bộ trong effect sở hữu nó.
+</Callout>
+
+## Loại bỏ dependency — một cách trung thực
+
+Khi linter báo một dependency mà bạn ước gì nó không có ở đó, cách sửa **không bao giờ** là tắt lint. Thay vào đó, hãy chứng minh dependency đó thật sự không cần bằng cách đổi code để giá trị không còn reactive _bên trong effect_. Các kỹ thuật chính:
+
+### Đưa giá trị tĩnh ra ngoài component
+
+Một hằng số hay hàm không dùng props/state có thể nằm ở phạm vi module, nơi nó không reactive và không bao giờ cần liệt kê.
+
+```jsx
+const options = { serverUrl: "https://localhost:1234" } // đưa ra ngoài → không reactive
+```
+
+### Đưa object/hàm động vào bên trong effect
+
+Một `{}` hay `() => {}` tạo lúc render là một tham chiếu mới mỗi lần render, nên liệt kê nó khiến effect chạy mỗi lần. Hãy tạo nó **bên trong** effect và phụ thuộc vào các giá trị nguyên thuỷ.
+
+```jsx
+// ✅ dựng object bên trong; phụ thuộc string, không phải object
+useEffect(() => {
+  const options = { serverUrl, roomId }
+  const conn = createConnection(options)
+  conn.connect()
+  return () => conn.disconnect()
+}, [serverUrl, roomId])
+```
+
+### Dùng updater dạng hàm để bỏ dependency state
+
+Nếu effect chỉ cần state _trước đó_ để tính giá trị kế tiếp, hãy đọc qua updater để state không phải dependency.
+
+```jsx
+// không phụ thuộc gì — không có `count` trong deps
+useEffect(() => {
+  const id = setInterval(() => setCount((c) => c + 1), 1000)
+  return () => clearInterval(id)
+}, [])
+```
+
+### Tách một effect thành nhiều
+
+Nếu một effect chạy lại vì hai lý do không liên quan, có lẽ nó đang làm hai việc. Mỗi effect một mối quan tâm đồng bộ thường thu nhỏ từng danh sách dependency về đúng thứ nó cần.
+
+<Callout variant="interview" title='"Làm sao loại bỏ một dependency của effect một cách hợp lệ?"'>
+  Bạn đổi code để giá trị không còn là giá trị reactive được đọc trong effect: đưa hằng số ra ngoài
+  component, dựng object động bên trong effect và phụ thuộc giá trị nguyên thuỷ, dùng updater dạng
+  hàm cho state, bọc phần đọc không-reactive trong Effect Event, hoặc tách effect. Không bao giờ chỉ
+  xoá nó khỏi mảng hay tắt luật lint.
+</Callout>
+
+## Tóm tắt
+
+- Vòng đời effect là **bắt đầu đồng bộ / dừng đồng bộ**, độc lập với mount/update/unmount.
+- Một giá trị là **reactive** nếu nó có thể đổi giữa các lần render (props, state, thứ dẫn xuất từ chúng); hằng số phạm vi module thì không.
+- Danh sách dependency phải chứa mọi giá trị reactive effect đọc — linter tính giúp bạn.
+- **Effect Event** (`useEffectEvent`, thử nghiệm) cho phép effect đọc giá trị reactive mới nhất mà không chạy lại khi nó đổi.
+- Loại bỏ dependency bằng cách đổi code (đưa ra ngoài, chuyển vào trong, updater dạng hàm, tách effect), không bao giờ bằng cách tắt linter.
